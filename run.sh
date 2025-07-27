@@ -51,22 +51,40 @@ mkdir -p build/icicle
 ICILE_DIR=$(realpath "icicle/")
 ICICLE_BACKEND_SOURCE_DIR="${ICILE_DIR}/backend/${DEVICE_TYPE_LOWERCASE}"
 
-# Build Icicle and the example app that links to it
-if [ "$DEVICE_TYPE" != "CPU" ] && [ ! -d "${ICICLE_BACKEND_INSTALL_DIR}" ] && [ -d "${ICICLE_BACKEND_SOURCE_DIR}" ]; then
+# Download and extract Icicle release for non-CPU devices if backend not specified
+if [ "$DEVICE_TYPE" != "CPU" ] && [ -z "${ICICLE_BACKEND_INSTALL_DIR}" ]; then
+  echo "Downloading Icicle release for ${DEVICE_TYPE}"
+  mkdir -p build/icicle_release
+  wget -q https://github.com/ingonyama-zk/icicle/releases/download/v4.0.0/icicle_4_0_0-ubuntu22-cuda122.tar.gz -O build/icicle_release/icicle.tar.gz
+  tar -xzf build/icicle_release/icicle.tar.gz -C build/icicle_release
+  export ICICLE_BACKEND_INSTALL_DIR=$(realpath "build/icicle_release")
+  echo "Using downloaded Icicle release at ${ICICLE_BACKEND_INSTALL_DIR}"
+  
+  # Build only the src project when using pre-built release
+  cmake -DCMAKE_BUILD_TYPE=Release -S "${ICILE_DIR}" -B build/icicle -DRING=babykoala
+  cmake --build build/icicle -j
+  cmake -DCMAKE_BUILD_TYPE=Release -S src -B build/src
+  cmake --build build/src -j
+# Build Icicle backend locally if source exists and no backend install dir specified
+elif [ "$DEVICE_TYPE" != "CPU" ] && [ ! -d "${ICICLE_BACKEND_INSTALL_DIR}" ] && [ -d "${ICICLE_BACKEND_SOURCE_DIR}" ]; then
   echo "Building icicle and ${DEVICE_TYPE} backend"
   cmake -DCMAKE_BUILD_TYPE=Release -DRING=babykoala "-D${DEVICE_TYPE}_BACKEND"=local -S "${ICILE_DIR}" -B build/icicle
   export ICICLE_BACKEND_INSTALL_DIR=$(realpath "build/icicle/backend")
+  
+  # Build both icicle and src
+  cmake --build build/icicle -j
+  cmake -DCMAKE_BUILD_TYPE=Release -S src -B build/src
+  cmake --build build/src -j
 else
   echo "Building icicle without backend, ICICLE_BACKEND_INSTALL_DIR=${ICICLE_BACKEND_INSTALL_DIR}"
   export ICICLE_BACKEND_INSTALL_DIR="${ICICLE_BACKEND_INSTALL_DIR}"
   cmake -DCMAKE_BUILD_TYPE=Release -DRING=babykoala -S "${ICILE_DIR}" -B build/icicle
+  
+  # Build both icicle and src
+  cmake --build build/icicle -j
+  cmake -DCMAKE_BUILD_TYPE=Release -S src -B build/src
+  cmake --build build/src -j
 fi
-
-# Build the src project
-cmake -DCMAKE_BUILD_TYPE=Release -S src -B build/src
-
-cmake --build build/icicle -j
-cmake --build build/src -j
 
 ./build/src/example "$DEVICE_TYPE"
 # compute-sanitizer --tool memcheck --leak-check full ./build/src/example "$DEVICE_TYPE" > sanitizer_output.log 2>&1

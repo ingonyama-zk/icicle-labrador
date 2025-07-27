@@ -8,17 +8,21 @@ To run the program on CPU use
 ./run.sh
 ```
 
-To run on GPU, first do (only required once)
-
-```
-./scripts/pull_cuda_backend.sh
-```
-
-then
+To run on GPU, run
 
 ```
 ./run.sh -d CUDA
 ```
+
+This script will automatically download the ICICLE CUDA backend (v4.0.0) when running with the CUDA option, build the necessary components, and run the prover.
+
+You can also specify a custom backend installation directory with:
+
+```
+./run.sh -d CUDA -b /path/to/backend
+```
+
+---
 
 The main program runs a simple benchmarking program for which the parameters can be set here:
 
