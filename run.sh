@@ -55,8 +55,12 @@ ICICLE_BACKEND_SOURCE_DIR="${ICILE_DIR}/backend/${DEVICE_TYPE_LOWERCASE}"
 if [ "$DEVICE_TYPE" != "CPU" ] && [ -z "${ICICLE_BACKEND_INSTALL_DIR}" ]; then
   echo "Downloading Icicle release for ${DEVICE_TYPE}"
   mkdir -p build/icicle_release
-  wget -q https://github.com/ingonyama-zk/icicle/releases/download/v4.0.0/icicle_4_0_0-ubuntu22-cuda122.tar.gz -O build/icicle_release/icicle.tar.gz
-  tar -xzf build/icicle_release/icicle.tar.gz -C build/icicle_release
+  if [ -z "$(ls -A build/icicle_release)" ]; then
+    wget -q https://github.com/ingonyama-zk/icicle/releases/download/v4.0.0/icicle_4_0_0-ubuntu22-cuda122.tar.gz -O build/icicle_release/icicle.tar.gz
+    tar -xzf build/icicle_release/icicle.tar.gz -C build/icicle_release
+  else
+    echo "Icicle release already present in build/icicle_release, skipping download."
+  fi
   export ICICLE_BACKEND_INSTALL_DIR=$(realpath "build/icicle_release")
   echo "Using downloaded Icicle release at ${ICICLE_BACKEND_INSTALL_DIR}"
   
