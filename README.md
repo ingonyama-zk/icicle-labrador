@@ -1,8 +1,10 @@
 # icicle-labrador
 
-This repository contains a compact, end-to-end demo of **LaBRADOR** — the first practical *lattice-based* zk-SNARK (CRYPTO 2023) - built on top of **ICICLE v4**. LaBRADOR produces ~50 kB proofs without a trusted setup and is secure under the Module-SIS assumption, making it resistant to both classical and *quantum* attacks.
+> **⚠️ WARNING**: This code has not been audited. Use at your own risk.
 
- ICICLE ships highly-tuned GPU and CPU kernels for FFT/NTT, polynomial arithmetic and lattice primitives. Thanks to those kernels the prover can run unchanged on a laptop CPU *or* a CUDA-capable GPU and enjoy order-of-magnitude speed-ups.
+This repository contains a compact, end-to-end demo of **LaBRADOR** — the first practical _lattice-based_ zk-SNARK (CRYPTO 2023) - built on top of **ICICLE v4**. LaBRADOR produces ~50 kB proofs without a trusted setup and is secure under the Module-SIS assumption, making it resistant to both classical and _quantum_ attacks.
+
+ICICLE ships highly-tuned GPU and CPU kernels for FFT/NTT, polynomial arithmetic and lattice primitives. Thanks to those kernels the prover can run unchanged on a laptop CPU _or_ a CUDA-capable GPU and enjoy order-of-magnitude speed-ups.
 
 For additional background see the original [paper](https://link.springer.com/chapter/10.1007/978-3-031-38554-4_17) and our detailed [blog post](https://hackmd.io/@Ingonyama/fast-labrador-prover).
 
@@ -49,7 +51,6 @@ constexpr bool SHOW_STEPS = true;
 
 All functions and objects are documented in code.
 
-## Performance 
+## Performance
 
 ![LaBRADOR latency vs. constraint count](labrador-latency.png)
-
