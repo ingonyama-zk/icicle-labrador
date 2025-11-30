@@ -51,7 +51,7 @@ namespace icicle {
 
     void slice(PolyContext out, PolyContext in, uint64_t offset, uint64_t stride, uint64_t size) override
     {
-      assert_device_compatability({in});
+      assert_device_compatibility({in});
       auto [in_coeffs, in_size] = in->get_coefficients();
       // size=0 means take as much as elements as there are to take
       uint64_t out_size = (size > 0) ? size : (1 + (in_size - 1 - offset) / stride);
@@ -70,7 +70,7 @@ namespace icicle {
 
     void add_sub(PolyContext& res, PolyContext a, PolyContext b, bool add1_sub0)
     {
-      assert_device_compatability({a, b});
+      assert_device_compatibility({a, b});
 
       // add/sub can be done in both coefficients or evaluations, but operands must be in the same state.
       // For evaluations, same state also means same number of evaluations (and on same domain).
@@ -135,7 +135,7 @@ namespace icicle {
 
     void multiply(PolyContext c, PolyContext a, PolyContext b) override
     {
-      assert_device_compatability({a, b});
+      assert_device_compatibility({a, b});
 
       const bool is_a_scalar = a->get_nof_elements() == 1;
       const bool is_b_scalar = b->get_nof_elements() == 1;
@@ -154,7 +154,7 @@ namespace icicle {
 
     void multiply(PolyContext out, PolyContext p, D scalar) override
     {
-      assert_device_compatability({p});
+      assert_device_compatibility({p});
 
       // element wise multiplication is similar both in coefficients and evaluations (regardless of order too)
       const auto state = p->get_state();
@@ -252,7 +252,7 @@ namespace icicle {
 
     void divide(PolyContext Q /*OUT*/, PolyContext R /*OUT*/, PolyContext a, PolyContext b) override
     {
-      assert_device_compatability({a, b});
+      assert_device_compatibility({a, b});
 
       auto [a_coeffs, a_N] = a->get_coefficients();
       auto [b_coeffs, b_N] = b->get_coefficients();
@@ -300,7 +300,7 @@ namespace icicle {
 
     void divide_by_vanishing_polynomial(PolyContext out, PolyContext numerator, uint64_t vanishing_poly_degree) override
     {
-      assert_device_compatability({numerator});
+      assert_device_compatibility({numerator});
 
       // vanishing polynomial of degree N is the polynomial V(x) such that V(r)=0 for r Nth root-of-unity.
       // For example for N=4 it vanishes on the group [1,W,W^2,W^3] where W is the 4th root of unity. In that
@@ -343,7 +343,7 @@ namespace icicle {
       // General case: P(x)/V(x) where v is of degree N and p of any degree>N
 
       // (1) allocate vanishing polynomial in coefficients form
-      // TODO Yuval: maybe instead of taking numerator memory and modiyfing it diretcly add a state for evaluations
+      // TODO Yuval: maybe instead of taking numerator memory and modifying it directly add a state for evaluations
       // on coset of rou. In that case I can remain in this state and also won't need to access input memory
       // directly
       numerator->transform_to_coefficients();
@@ -634,7 +634,7 @@ namespace icicle {
       return p->get_coefficients_view();
     }
 
-    inline void assert_device_compatability(const std::list<PolyContext>& polys) const
+    inline void assert_device_compatibility(const std::list<PolyContext>& polys) const
     {
       for (const PolyContext& p : polys) {
         ICICLE_CHECK(icicle_is_active_device_memory(get_context_storage_immutable(p)));
