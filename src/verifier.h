@@ -30,6 +30,7 @@ struct LabradorBaseVerifier {
       : lab_inst(lab_inst), trs(), oracle(create_oracle_seed(oracle_seed, oracle_seed_len, lab_inst))
   {
     trs.prover_msg = prover_msg;
+    validate_prover_message_shape();
     create_transcript();
   }
 
@@ -39,6 +40,7 @@ struct LabradorBaseVerifier {
       : lab_inst(lab_inst), trs(), oracle(oracle)
   {
     trs.prover_msg = prover_msg;
+    validate_prover_message_shape();
     create_transcript();
   }
 
@@ -72,6 +74,9 @@ struct LabradorBaseVerifier {
   /// instance and oracle.
   /// @return True if verification passes
   bool _verify_base_proof(const LabradorBaseCaseProof& base_proof) const;
+
+  /// Reject malformed message vectors before hashing or matrix operations.
+  void validate_prover_message_shape() const;
 };
 
 /// @brief Struct that performs the Verifier actions for the entire Labrador protocol, counterpart to LabradorProver
@@ -100,6 +105,7 @@ struct LabradorVerifier {
         oracle(create_oracle_seed(oracle_seed, oracle_seed_len, lab_inst)), NUM_REC(NUM_REC)
   {
     if (prover_msgs.size() != NUM_REC) { throw std::invalid_argument("prover_msgs.size() must equal NUM_REC"); }
+    if (NUM_REC == 0) { throw std::invalid_argument("NUM_REC must be at least one"); }
   }
   /// Verifies whether the proof given by the Prover is valid or not
   bool verify();

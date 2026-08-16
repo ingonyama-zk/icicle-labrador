@@ -107,6 +107,14 @@ struct LabradorParam {
   /// Base for decomposing h
   uint32_t base3;
 
+  /// Fixed decomposition lengths.  LaBRADOR chooses these lengths from the
+  /// coefficient-width analysis in Section 5.4; they are not, in general,
+  /// the number of digits required to represent an arbitrary element of Zq.
+  /// In particular, the last digit is an unrestricted high part.
+  size_t digits1;
+  size_t digits2;
+  size_t digits3;
+
   /// JL projection parameters
 
   /// Output dimension for Johnson-Lindenstrauss projection (typically 256)
@@ -133,9 +141,19 @@ struct LabradorParam {
     uint32_t base1,
     uint32_t base2,
     uint32_t base3,
-    double beta)
+    double beta,
+    size_t digits1 = 0,
+    size_t digits2 = 0,
+    size_t digits3 = 0)
       : r(r), n(n), ajtai_seed(ajtai_seed), kappa(kappa), kappa1(kappa1), kappa2(kappa2), A(), B(), C(), D(),
-        base1(base1), base2(base2), base3(base3), beta(beta)
+        base1(base1), base2(base2), base3(base3),
+        digits1(
+          digits1 == 0 ? icicle::balanced_decomposition::compute_nof_digits<Zq>(base1) : digits1),
+        digits2(
+          digits2 == 0 ? icicle::balanced_decomposition::compute_nof_digits<Zq>(base2) : digits2),
+        digits3(
+          digits3 == 0 ? icicle::balanced_decomposition::compute_nof_digits<Zq>(base3) : digits3),
+        beta(beta)
   {
     std::vector<std::byte> seed_A(ajtai_seed), seed_B(ajtai_seed), seed_C(ajtai_seed), seed_D(ajtai_seed);
     seed_A.push_back(std::byte('0'));
@@ -152,10 +170,13 @@ struct LabradorParam {
     VecOpsConfig async_config = default_vec_ops_config();
     async_config.is_async = true;
 
-    ICICLE_CHECK(random_sampling(A.size(), true, seed_A.data(), seed_A.size(), async_config, A.data()));
-    ICICLE_CHECK(random_sampling(B.size(), true, seed_B.data(), seed_B.size(), async_config, B.data()));
-    ICICLE_CHECK(random_sampling(C.size(), true, seed_C.data(), seed_C.size(), async_config, C.data()));
-    ICICLE_CHECK(random_sampling(D.size(), true, seed_D.data(), seed_D.size(), async_config, D.data()));
+    // Avoid ICICLE's structured fast mode (powers of one element).  Slow mode
+    // uses independent XOF blocks, but its reduction-to-Zq bias still needs a
+    // separate security audit before this can be called a uniform CRS.
+    ICICLE_CHECK(random_sampling(A.size(), false, seed_A.data(), seed_A.size(), async_config, A.data()));
+    ICICLE_CHECK(random_sampling(B.size(), false, seed_B.data(), seed_B.size(), async_config, B.data()));
+    ICICLE_CHECK(random_sampling(C.size(), false, seed_C.data(), seed_C.size(), async_config, C.data()));
+    ICICLE_CHECK(random_sampling(D.size(), false, seed_D.data(), seed_D.size(), async_config, D.data()));
 
     ICICLE_CHECK(icicle_device_synchronize());
   }
@@ -165,22 +186,19 @@ struct LabradorParam {
   /* helper lengths for base proof vectors --------------------------------*/
   size_t t_len() const
   {
-    size_t l1 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base1);
-    return l1 * r * kappa;
+    return digits1 * r * kappa;
   }
 
   size_t g_len() const
   {
-    size_t l2 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base2);
     size_t r_choose_2 = (r * (r + 1)) / 2;
-    return (l2 * r_choose_2);
+    return (digits2 * r_choose_2);
   }
 
   size_t h_len() const
   {
-    size_t l3 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base3);
     size_t r_choose_2 = (r * (r + 1)) / 2;
-    return (l3 * r_choose_2);
+    return (digits3 * r_choose_2);
   }
 };
 
@@ -259,7 +277,7 @@ struct BaseProverMessages {
 
   BaseProverMessages() = default;
 
-  size_t proof_size()
+  size_t proof_size() const
   {
     return sizeof(Zq) * (u1.size() * Tq::d + p.size() + b_agg.size() * Tq::d + u2.size() * Tq::d) + sizeof(size_t);
   }
@@ -278,7 +296,7 @@ struct PartialTranscript {
 
   PartialTranscript() = default;
 
-  inline size_t proof_size() { return prover_msg.proof_size(); }
+  inline size_t proof_size() const { return prover_msg.proof_size(); }
 };
 
 /// @brief Struct to hold the proof for the base case

@@ -43,6 +43,55 @@ LabradorInstance prepare_recursion_instance(
   size_t mu,
   size_t nu);
 
+/// Public, deterministic parameters for one LaBRADOR transition.  These are
+/// the Section 5.4 paper formulas evaluated for the current relation.  The
+/// Module-SIS ranks remain caller supplied: this repository does not contain a
+/// concrete-security estimator.
+struct LabradorTransitionPlan {
+  uint32_t z_base;
+  size_t digits1, digits2, digits3;
+  uint32_t base1, base2, base3;
+  double beta_next;
+  size_t auxiliary_len;
+  size_t mu, nu;
+  size_t n_next, r_next;
+};
+
+struct LabradorDecompositionPlan {
+  uint32_t z_base;
+  size_t digits1, digits2, digits3;
+  uint32_t base1, base2, base3;
+};
+
+LabradorDecompositionPlan derive_decomposition_plan(size_t n, size_t r, double beta);
+
+LabradorTransitionPlan derive_transition_plan(
+  size_t n,
+  size_t r,
+  size_t kappa,
+  uint32_t base1,
+  uint32_t base2,
+  uint32_t base3,
+  size_t digits1,
+  size_t digits2,
+  size_t digits3,
+  double beta);
+
+LabradorTransitionPlan derive_transition_plan(const LabradorParam& param);
+
+/// Fixed-length centered decomposition.  The first `digits-1` limbs are
+/// bounded centered base-b digits and the final limb stores the unrestricted
+/// quotient.  This is the decomposition used in LaBRADOR; it differs from a
+/// full decomposition of an arbitrary residue modulo q.
+std::vector<Rq> fixed_length_decompose(const std::vector<Rq>& input, uint32_t base, size_t digits);
+
+/// Exact coefficient L2 norm (using centered representatives).
+long double coefficient_l2_norm(const std::vector<Rq>& input);
+
+/// Append a canonical little-endian uint64 value to a byte string.  Used for
+/// the JL retry counter in both the matrix seed and Fiat--Shamir transcript.
+std::vector<std::byte> append_u64_le(const std::byte* seed, size_t seed_len, uint64_t value);
+
 /// @brief Helper struct to prepare recursive instance of the problem
 struct RecursionPreparer {
   size_t prev_r, prev_n, mu, nu;
@@ -52,7 +101,6 @@ struct RecursionPreparer {
   // These are internally created
   size_t n_prime, r_prime;
   size_t t_len, g_len, h_len;
-  size_t L_t, L_g, L_h;
 
   RecursionPreparer(const LabradorParam& param, size_t mu, size_t nu, uint32_t base0)
       : prev_r(param.r), prev_n(param.n), mu(mu), nu(nu), base0(base0)
@@ -62,12 +110,8 @@ struct RecursionPreparer {
     h_len = param.h_len();
     size_t m = t_len + g_len + h_len;
 
-    n_prime = std::max(std::ceil((double)prev_n / nu), std::ceil((double)m / mu));
-
-    L_t = (t_len + n_prime - 1) / n_prime;
-    L_g = (g_len + n_prime - 1) / n_prime;
-    L_h = (h_len + n_prime - 1) / n_prime;
-    r_prime = (2 * nu + L_t + L_g + L_h);
+    n_prime = std::max((prev_n + nu - 1) / nu, (m + mu - 1) / mu);
+    r_prime = 2 * nu + mu;
   }
 
   // These functions return the starting index for corresponding witness in a r_prime * n_prime matrix
@@ -99,6 +143,6 @@ uint32_t calc_base0(size_t r, uint64_t op_norm_bound, double beta);
 /// returns a choice of mu, nu given n, m for recursion
 std::pair<size_t, size_t> compute_mu_nu(size_t n, size_t m);
 
-/// return kappa such that for a random A: kappa X m the MSIS problem
-/// Ax = 0 has at least 128 bits of security
+/// Legacy root-Hermite-factor rank heuristic.  This does not replace the
+/// norm-dependent Module-SIS estimator required for a concrete-security claim.
 size_t secure_msis_rank();

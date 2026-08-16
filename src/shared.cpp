@@ -1,5 +1,163 @@
 #include "shared.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <stdexcept>
+
+namespace {
+
+constexpr long double LABRADOR_TAU = 71.0L;
+
+size_t checked_add_size(size_t left, size_t right, const char* label)
+{
+  if (right > std::numeric_limits<size_t>::max() - left) {
+    throw std::overflow_error(std::string(label) + " overflows size_t");
+  }
+  return left + right;
+}
+
+size_t checked_mul_size(size_t left, size_t right, const char* label)
+{
+  if (left != 0 && right > std::numeric_limits<size_t>::max() / left) {
+    throw std::overflow_error(std::string(label) + " overflows size_t");
+  }
+  return left * right;
+}
+
+size_t ceil_div_size(size_t value, size_t divisor)
+{
+  if (divisor == 0) { throw std::invalid_argument("division by zero"); }
+  return value / divisor + static_cast<size_t>(value % divisor != 0);
+}
+
+uint32_t round_positive_to_u32(long double value, const char* label)
+{
+  if (!std::isfinite(value) || value < 0.0L ||
+      value > static_cast<long double>(std::numeric_limits<uint32_t>::max())) {
+    throw std::runtime_error(std::string(label) + " is outside uint32_t");
+  }
+  return static_cast<uint32_t>(std::floor(value + 0.5L));
+}
+
+unsigned __int128 integer_power_capped(uint64_t base, size_t exponent, unsigned __int128 cap)
+{
+  unsigned __int128 result = 1;
+  for (size_t i = 0; i < exponent; ++i) {
+    result *= base;
+    if (result >= cap) { return cap; }
+  }
+  return result;
+}
+
+uint32_t ceil_nth_root_u64(uint64_t value, size_t exponent)
+{
+  if (value == 0 || exponent == 0) { throw std::invalid_argument("invalid integer root"); }
+  uint64_t low = 1;
+  uint64_t high = std::max<uint64_t>(2, static_cast<uint64_t>(
+    std::ceil(std::exp(std::log(static_cast<long double>(value)) / exponent))));
+  const unsigned __int128 cap = static_cast<unsigned __int128>(value);
+  while (integer_power_capped(high, exponent, cap) < cap) {
+    if (high > std::numeric_limits<uint32_t>::max() / 2ULL) {
+      throw std::runtime_error("decomposition base exceeds uint32_t");
+    }
+    high *= 2;
+  }
+  while (low < high) {
+    const uint64_t middle = low + (high - low) / 2;
+    if (integer_power_capped(middle, exponent, cap) >= cap) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+  if (low > std::numeric_limits<uint32_t>::max()) {
+    throw std::runtime_error("decomposition base exceeds uint32_t");
+  }
+  return static_cast<uint32_t>(low);
+}
+
+struct DecompositionChoice {
+  uint32_t z_base;
+  size_t digits1;
+  size_t digits2;
+  uint32_t base1;
+  uint32_t base2;
+};
+
+DecompositionChoice choose_decomposition(size_t n, size_t r, double beta)
+{
+  if (n == 0 || r == 0 || !std::isfinite(beta) || beta <= 0.0) {
+    throw std::invalid_argument("invalid LaBRADOR level dimensions or beta");
+  }
+  constexpr long double d = static_cast<long double>(Rq::d);
+  const long double q = static_cast<long double>(get_q<Zq>());
+  const long double s = static_cast<long double>(beta) /
+                        std::sqrt(static_cast<long double>(r) * n * d);
+  const long double base_real = std::sqrt(s * std::sqrt(12.0L * r * LABRADOR_TAU));
+  const uint32_t z_base = std::max<uint32_t>(2, round_positive_to_u32(base_real, "z base"));
+
+  const long double t1_real = std::log(q) / std::log(static_cast<long double>(z_base));
+  const size_t digits1 = std::max<size_t>(
+    2, static_cast<size_t>(std::floor(t1_real + 0.5L)));
+  const uint32_t base1 = ceil_nth_root_u64(static_cast<uint64_t>(get_q<Zq>()), digits1);
+
+  const long double garbage_scale = std::sqrt(24.0L * n * d) * s * s;
+  long double t2_real = 0.0L;
+  if (garbage_scale > 1.0L) {
+    t2_real = std::log(garbage_scale) / std::log(static_cast<long double>(z_base));
+  }
+  const size_t digits2 = std::max<size_t>(
+    2, static_cast<size_t>(std::floor(std::max(0.0L, t2_real) + 0.5L)));
+  const long double base2_real = std::pow(std::max(1.0L, garbage_scale), 1.0L / digits2);
+  const uint32_t base2 = std::max<uint32_t>(2, round_positive_to_u32(base2_real, "garbage base"));
+  return {z_base, digits1, digits2, base1, base2};
+}
+
+int64_t centered_coefficient(const Zq& value)
+{
+  int64_t encoded = 0;
+  static_assert(sizeof(encoded) == sizeof(value), "BabyKoala coefficient must occupy 64 bits");
+  std::memcpy(&encoded, &value, sizeof(encoded));
+  const int64_t q = get_q<Zq>();
+  if (encoded > q / 2) { encoded -= q; }
+  return encoded;
+}
+
+Zq coefficient_from_signed(int64_t value)
+{
+  if (value >= 0) { return Zq::from_u64(static_cast<uint64_t>(value)); }
+  return Zq::from_u64(static_cast<uint64_t>(-value)).neg();
+}
+
+std::pair<int64_t, int64_t> floor_divmod(int64_t value, uint32_t base)
+{
+  int64_t quotient = value / static_cast<int64_t>(base);
+  int64_t remainder = value % static_cast<int64_t>(base);
+  if (remainder < 0) {
+    --quotient;
+    remainder += base;
+  }
+  return {quotient, remainder};
+}
+
+} // namespace
+
+LabradorDecompositionPlan derive_decomposition_plan(size_t n, size_t r, double beta)
+{
+  const DecompositionChoice choice = choose_decomposition(n, r, beta);
+  return {
+    choice.z_base,
+    choice.digits1,
+    choice.digits2,
+    choice.digits1,
+    choice.base1,
+    choice.base2,
+    choice.base1,
+  };
+}
+
 bool poly_vec_eq(const PolyRing* vec1, const PolyRing* vec2, size_t size)
 {
   for (size_t i = 0; i < size; i++) {
@@ -53,8 +211,13 @@ Oracle create_oracle_seed(const std::byte* seed, size_t seed_len, const Labrador
   append(prm.base1);
   append(prm.base2);
   append(prm.base3);
+  append(prm.digits1);
+  append(prm.digits2);
+  append(prm.digits3);
   append(prm.JL_out);
   append(prm.beta);
+  append(prm.op_norm_bound);
+  append(prm.num_aggregation_rounds);
 
   // 1.a Ajtai seed (variable length)
   append(prm.ajtai_seed.size());
@@ -71,26 +234,166 @@ Oracle create_oracle_seed(const std::byte* seed, size_t seed_len, const Labrador
 
 uint32_t calc_base0(size_t r, uint64_t op_norm_bound, double beta)
 {
-  uint32_t base0 = sqrt(op_norm_bound * beta * sqrt(r));
-  return base0;
+  if (r == 0 || op_norm_bound == 0 || !std::isfinite(beta) || beta <= 0.0) {
+    throw std::invalid_argument("invalid base0 inputs");
+  }
+  const long double threshold = static_cast<long double>(op_norm_bound) * beta * std::sqrt((long double)r);
+  const long double root = std::sqrt(threshold);
+  if (!std::isfinite(root) || root >= std::numeric_limits<uint32_t>::max()) {
+    throw std::overflow_error("base0 does not fit uint32_t");
+  }
+  // Strictly enforce threshold < base0^2, including perfect squares.
+  return static_cast<uint32_t>(std::floor(root)) + 1;
 }
 
 std::pair<size_t, size_t> compute_mu_nu(size_t n, size_t m)
 {
+  if (n == 0 || m == 0) { throw std::invalid_argument("n and m must be positive"); }
   // setting r_prime^2 = C * n_prime
-  float C = 1.0 / 4.0;
-  float m_plus_2n = 2 * n + m;
-  float frac = pow(C / m_plus_2n / m_plus_2n, 1.0 / 3.0);
+  const long double C = 1.0L / 4.0L;
+  const long double m_plus_2n = 2.0L * n + m;
+  const long double frac = std::pow(C / m_plus_2n / m_plus_2n, 1.0L / 3.0L);
   if (n > m) {
-    float nu_f = frac * n + 1.0;
-    float mu_f = ceil(m * nu_f / n);
-    return std::make_pair(size_t(mu_f), size_t(nu_f));
+    const size_t nu = std::max<size_t>(1, static_cast<size_t>(frac * n + 1.0L));
+    const size_t scaled_m = checked_mul_size(m, nu, "m*nu");
+    const size_t mu = std::max<size_t>(1, ceil_div_size(scaled_m, n));
+    return std::make_pair(mu, nu);
   } else {
-    float mu_f = frac * m + 1.0;
-    float nu_f = ceil(n * mu_f / m);
-    return std::make_pair(size_t(mu_f), size_t(nu_f));
+    const size_t mu = std::max<size_t>(1, static_cast<size_t>(frac * m + 1.0L));
+    const size_t scaled_n = checked_mul_size(n, mu, "n*mu");
+    const size_t nu = std::max<size_t>(1, ceil_div_size(scaled_n, m));
+    return std::make_pair(mu, nu);
   }
-  // size_t nu = 1 << 3, mu = 1 << 3;
+}
+
+std::vector<Rq> fixed_length_decompose(const std::vector<Rq>& input, uint32_t base, size_t digits)
+{
+  if (input.empty() || base < 2 || digits < 2) {
+    throw std::invalid_argument("invalid fixed-length decomposition parameters");
+  }
+  std::vector<Rq> output(input.size() * digits, zero());
+  const int64_t half = static_cast<int64_t>(base / 2);
+  const int64_t q_half = get_q<Zq>() / 2;
+  for (size_t polynomial = 0; polynomial < input.size(); ++polynomial) {
+    for (size_t coefficient = 0; coefficient < Rq::d; ++coefficient) {
+      int64_t value = centered_coefficient(input[polynomial].values[coefficient]);
+      for (size_t digit = 0; digit + 1 < digits; ++digit) {
+        auto [quotient, remainder] = floor_divmod(value, base);
+        if (remainder > half) {
+          remainder -= base;
+          ++quotient;
+        }
+        output[digit * input.size() + polynomial].values[coefficient] = coefficient_from_signed(remainder);
+        value = quotient;
+      }
+      if (value < -q_half || value > q_half) {
+        throw std::runtime_error("fixed-length decomposition high part does not fit Zq");
+      }
+      output[(digits - 1) * input.size() + polynomial].values[coefficient] = coefficient_from_signed(value);
+    }
+  }
+  return output;
+}
+
+long double coefficient_l2_norm(const std::vector<Rq>& input)
+{
+  long double squared = 0.0L;
+  for (const auto& polynomial : input) {
+    for (const auto& coefficient : polynomial.values) {
+      const long double centered = static_cast<long double>(centered_coefficient(coefficient));
+      squared += centered * centered;
+    }
+  }
+  return std::sqrt(squared);
+}
+
+std::vector<std::byte> append_u64_le(const std::byte* seed, size_t seed_len, uint64_t value)
+{
+  std::vector<std::byte> result(seed, seed + seed_len);
+  result.reserve(seed_len + sizeof(uint64_t));
+  for (size_t byte = 0; byte < sizeof(uint64_t); ++byte) {
+    result.push_back(std::byte((value >> (8 * byte)) & 0xffU));
+  }
+  return result;
+}
+
+LabradorTransitionPlan derive_transition_plan(
+  size_t n,
+  size_t r,
+  size_t kappa,
+  uint32_t base1,
+  uint32_t base2,
+  uint32_t base3,
+  size_t digits1,
+  size_t digits2,
+  size_t digits3,
+  double beta)
+{
+  if (n == 0 || r == 0 || kappa == 0 || base1 < 2 || base2 < 2 || base3 < 2 ||
+      digits1 < 2 || digits2 < 2 || digits3 < 2 || !std::isfinite(beta) || beta <= 0.0) {
+    throw std::invalid_argument("invalid LaBRADOR transition input");
+  }
+  const DecompositionChoice current_choice = choose_decomposition(n, r, beta);
+  const uint32_t z_base = current_choice.z_base;
+  const size_t r_plus_one = checked_add_size(r, 1, "r + 1");
+  const size_t pair_count_integer = checked_mul_size(r, r_plus_one, "r(r+1)") / 2;
+  const long double pair_count = static_cast<long double>(pair_count_integer);
+  const long double d = static_cast<long double>(Rq::d);
+  const long double gamma_squared = static_cast<long double>(beta) * beta * LABRADOR_TAU;
+  const long double gamma1_squared =
+    (static_cast<long double>(base1) * base1 * digits1 / 12.0L) * r * kappa * d +
+    (static_cast<long double>(base2) * base2 * digits2 / 12.0L) * pair_count * d;
+  const long double gamma2_squared =
+    (static_cast<long double>(base3) * base3 * digits3 / 12.0L) * pair_count * d;
+  const long double beta_next_squared =
+    2.0L * gamma_squared / (static_cast<long double>(z_base) * z_base) + gamma1_squared + gamma2_squared;
+  const double beta_next = static_cast<double>(std::sqrt(beta_next_squared));
+  if (!std::isfinite(beta_next) || beta_next <= 0.0) {
+    throw std::runtime_error("derived beta_next is invalid");
+  }
+
+  const size_t t_len = checked_mul_size(checked_mul_size(digits1, r, "digits1*r"), kappa, "t length");
+  const size_t g_len = checked_mul_size(digits2, pair_count_integer, "g length");
+  const size_t h_len = checked_mul_size(digits3, pair_count_integer, "h length");
+  const size_t auxiliary_len = checked_add_size(checked_add_size(t_len, g_len, "t+g"), h_len, "t+g+h");
+  auto [mu, nu] = compute_mu_nu(n, auxiliary_len);
+  const size_t n_next = std::max(ceil_div_size(n, nu), ceil_div_size(auxiliary_len, mu));
+  if (nu > (std::numeric_limits<size_t>::max() - mu) / 2) {
+    throw std::overflow_error("derived r_next overflows size_t");
+  }
+  const size_t r_next = 2 * nu + mu;
+  const DecompositionChoice next_choice = choose_decomposition(n_next, r_next, beta_next);
+
+  return {
+    z_base,
+    next_choice.digits1,
+    next_choice.digits2,
+    next_choice.digits1,
+    next_choice.base1,
+    next_choice.base2,
+    next_choice.base1,
+    beta_next,
+    auxiliary_len,
+    mu,
+    nu,
+    n_next,
+    r_next,
+  };
+}
+
+LabradorTransitionPlan derive_transition_plan(const LabradorParam& param)
+{
+  return derive_transition_plan(
+    param.n,
+    param.r,
+    param.kappa,
+    param.base1,
+    param.base2,
+    param.base3,
+    param.digits1,
+    param.digits2,
+    param.digits3,
+    param.beta);
 }
 
 size_t secure_msis_rank()
@@ -108,9 +411,9 @@ size_t RecursionPreparer::z1_begin_idx() const { return nu * n_prime; }
 
 size_t RecursionPreparer::t_begin_idx() const { return (2 * nu) * n_prime; }
 
-size_t RecursionPreparer::g_begin_idx() const { return (2 * nu + L_t) * n_prime; }
+size_t RecursionPreparer::g_begin_idx() const { return t_begin_idx() + t_len; }
 
-size_t RecursionPreparer::h_begin_idx() const { return (2 * nu + L_t + L_g) * n_prime; }
+size_t RecursionPreparer::h_begin_idx() const { return g_begin_idx() + g_len; }
 
 eIcicleError RecursionPreparer::copy_like_z0(Rq* dst, const Rq* src) const
 {
@@ -172,37 +475,38 @@ LabradorInstance prepare_recursion_instance(
   size_t t_len = preparer.t_len;
   size_t g_len = preparer.g_len;
   size_t h_len = preparer.h_len;
-  size_t L_t = preparer.L_t;
-  size_t L_g = preparer.L_g;
-  size_t L_h = preparer.L_h;
   size_t r_prime = preparer.r_prime;
   // Step 7: Let recursion_instance be a new empty LabradorInstance
 
   std::vector<std::byte> new_ajtai_seed(prev_param.ajtai_seed);
   new_ajtai_seed.push_back(std::byte('1'));
 
-  // TODO: beta needs to be set correctly for protocol to run
-  // currently too large
-  double beta = r * n * d * prev_param.beta;
-  uint32_t base_prime0 = calc_base0(r_prime, OP_NORM_BOUND, beta);
+  const LabradorTransitionPlan transition = derive_transition_plan(prev_param);
+  if (transition.z_base != base0 || transition.mu != mu || transition.nu != nu ||
+      transition.n_next != n_prime || transition.r_next != r_prime) {
+    throw std::runtime_error("prover/verifier LaBRADOR transition plan mismatch");
+  }
   LabradorParam recursion_param{
     r_prime,
     n_prime,
     new_ajtai_seed,
-    secure_msis_rank(), // kappa
-    secure_msis_rank(), // kappa1
-    secure_msis_rank(), // kappa2,
-    base_prime0,        // base1
-    base_prime0,        // base2
-    base_prime0,        // base3
-    beta,               // beta
+    prev_param.kappa,
+    prev_param.kappa1,
+    prev_param.kappa2,
+    transition.base1,
+    transition.base2,
+    transition.base3,
+    transition.beta_next,
+    transition.digits1,
+    transition.digits2,
+    transition.digits3,
   };
   LabradorInstance recursion_instance{recursion_param};
 
   Zq _zero = Zq::zero();
   Zq two = Zq::from(2);
   Zq two_inv = two.inverse();
-  size_t l3 = icicle::balanced_decomposition::compute_nof_digits<Zq>(prev_param.base3);
+  size_t l3 = prev_param.digits3;
 
   // Step 8: add the equality constraint u1=tB + gC to recursion_instance
   // B_t, C_t are transposed B, C
@@ -260,7 +564,7 @@ LabradorInstance prepare_recursion_instance(
 
   // Step 10: add the equality constraint Az - sum_i c_i t_i =0 to recursion_instance
   size_t kappa = prev_param.kappa;
-  size_t l1 = icicle::balanced_decomposition::compute_nof_digits<Zq>(prev_param.base1);
+  size_t l1 = prev_param.digits1;
 
   // A transpose
   std::vector<Tq> A_t(kappa * n);
@@ -336,7 +640,7 @@ LabradorInstance prepare_recursion_instance(
 
     // construct the vector h_mul = [temp | base3*temp | base3^2* temp | ... | base3^l3 * temp]
     std::vector<Tq> h_mul(h_len);
-    size_t l3 = icicle::balanced_decomposition::compute_nof_digits<Zq>(prev_param.base3);
+    size_t l3 = prev_param.digits3;
 
     Zq b3_zq = Zq::from(prev_param.base3);
     ICICLE_CHECK(icicle_copy(&h_mul[0], temp.data(), temp.size() * sizeof(Tq)));
@@ -363,7 +667,7 @@ LabradorInstance prepare_recursion_instance(
   };
 
   Tq poly_one = const_poly(Zq::one());
-  size_t l2 = icicle::balanced_decomposition::compute_nof_digits<Zq>(prev_param.base2);
+  size_t l2 = prev_param.digits2;
 
   /* Step 12: \sum_ij a_ij G_ij + \sum_i h_ii + b == 0 */ {
     EqualityInstance step12_constraint(r_prime, n_prime);
@@ -428,8 +732,9 @@ LabradorInstance prepare_recursion_instance(
   /* Step 13: <z, z> - sum_ij c_i c_j G_ij == 0 */ {
     EqualityInstance step13_constraint(r_prime, n_prime);
 
-    Tq b0_poly = const_poly(Zq::from(base0));
-    Tq b0_sq_poly = const_poly(Zq::from(base0 * base0));
+    const Zq b0 = Zq::from(base0);
+    Tq b0_poly = const_poly(b0);
+    Tq b0_sq_poly = const_poly(b0 * b0);
     for (size_t i = 0; i < nu; i++) {
       // a[i,i] = 1
       step13_constraint.a[i * r_prime + i] = poly_one;

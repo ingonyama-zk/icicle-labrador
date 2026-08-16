@@ -1,6 +1,7 @@
 #include "prover.h"
 #include <cassert>
 #include <chrono>
+#include <limits>
 
 std::pair<size_t, std::vector<Zq>> LabradorBaseProver::select_valid_jl_proj(std::byte* seed, size_t seed_len) const
 {
@@ -11,21 +12,21 @@ std::pair<size_t, std::vector<Zq>> LabradorBaseProver::select_valid_jl_proj(std:
 
   std::vector<Zq> p(JL_out);
   size_t JL_i = 0;
-  std::vector<std::byte> jl_seed(seed, seed + seed_len);
-  while (true) {
-    jl_seed.push_back(std::byte(JL_i));
+  constexpr size_t MAX_JL_ATTEMPTS = 1U << 20;
+  while (JL_i < MAX_JL_ATTEMPTS) {
+    std::vector<std::byte> jl_seed = append_u64_le(seed, seed_len, static_cast<uint64_t>(JL_i));
     // create JL projection: P*(s_1, s_2, ..., s_r)
     ICICLE_CHECK(icicle::labrador::jl_projection(
       reinterpret_cast<const Zq*>(S.data()), n * r * d, jl_seed.data(), jl_seed.size(), {}, p.data(), JL_out));
     // check norm
-    bool JL_check = true;
+    bool JL_check = false;
     double beta = lab_inst.param.beta;
 
     // ignore ICICLE errors when elements of p are greater than sqrt(q)
     try {
       ICICLE_CHECK(check_norm_bound(p.data(), JL_out, eNormType::L2, uint64_t(sqrt(JL_out / 2) * beta), {}, &JL_check));
     } catch (const std::exception& e) {
-      // simply pass here
+      JL_check = false;
     }
 
     if (JL_check) {
@@ -33,9 +34,9 @@ std::pair<size_t, std::vector<Zq>> LabradorBaseProver::select_valid_jl_proj(std:
     } else {
       p.assign(p.size(), Zq::from(0));
       JL_i++;
-      jl_seed.pop_back();
     }
   }
+  if (JL_i == MAX_JL_ATTEMPTS) { throw std::runtime_error("JL retry limit exceeded"); }
   // at the end JL projection is defined by JL_i and p is the projection output
   // return these
   return std::make_pair(JL_i, p);
@@ -84,8 +85,7 @@ std::vector<Tq> LabradorBaseProver::agg_const_zero_constraints(
     return k * JL_out + l;
   };
 
-  std::vector<std::byte> jl_seed(seed1);
-  jl_seed.push_back(std::byte(JL_i));
+  std::vector<std::byte> jl_seed = append_u64_le(seed1.data(), seed1.size(), static_cast<uint64_t>(JL_i));
 
   DeviceVector<Rq> Q(JL_out * r * n);
   log_step("\t Variable setup");
@@ -295,9 +295,8 @@ std::pair<LabradorBaseCaseProof, PartialTranscript> LabradorBaseProver::base_cas
 
   // Step 5: Decompose T to T_tilde
   size_t base1 = lab_inst.param.base1;
-  size_t l1 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base1);
-  std::vector<Rq> T_tilde(l1 * r * kappa);
-  ICICLE_CHECK(decompose(T.data(), r * kappa, base1, {}, T_tilde.data(), T_tilde.size()));
+  size_t l1 = lab_inst.param.digits1;
+  std::vector<Rq> T_tilde = fixed_length_decompose(T, base1, l1);
   log_step("Step 5 completed: Decomposed T to T_tilde");
 
   // Step 6: Compute g
@@ -316,10 +315,8 @@ std::pair<LabradorBaseCaseProof, PartialTranscript> LabradorBaseProver::base_cas
 
   // Step 7: Decompose g to g_tilde
   size_t base2 = lab_inst.param.base2;
-  // TODO: Take advantage of g being small and truncate upper limbs
-  size_t l2 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base2);
-  std::vector<Rq> g_tilde(l2 * g.size());
-  ICICLE_CHECK(decompose(g.data(), g.size(), base2, {}, g_tilde.data(), g_tilde.size()));
+  size_t l2 = lab_inst.param.digits2;
+  std::vector<Rq> g_tilde = fixed_length_decompose(g, base2, l2);
   log_step("Step 7 completed: Decomposed g to g_tilde");
 
   // Step 8: u1 = B@T_tilde + C@g_tilde
@@ -363,8 +360,12 @@ std::pair<LabradorBaseCaseProof, PartialTranscript> LabradorBaseProver::base_cas
   trs.prover_msg.p = p;
 
   // Step 11: Serialize (JL_i, p) into bytes and feed to oracle for seed2
-  std::vector<std::byte> jl_buf(sizeof(size_t));
-  std::memcpy(jl_buf.data(), &JL_i, sizeof(size_t));
+  std::vector<std::byte> jl_buf;
+  jl_buf.reserve(sizeof(uint64_t) + p.size() * sizeof(Zq));
+  const uint64_t jl_counter = static_cast<uint64_t>(JL_i);
+  for (size_t byte = 0; byte < sizeof(jl_counter); ++byte) {
+    jl_buf.push_back(std::byte((jl_counter >> (8 * byte)) & 0xffU));
+  }
   jl_buf.insert(
     jl_buf.end(), reinterpret_cast<const std::byte*>(p.data()),
     reinterpret_cast<const std::byte*>(p.data()) + p.size() * sizeof(Zq));
@@ -471,10 +472,9 @@ std::pair<LabradorBaseCaseProof, PartialTranscript> LabradorBaseProver::base_cas
 
   // Step 18: Decompose h
   size_t base3 = lab_inst.param.base3;
-  size_t l3 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base3);
+  size_t l3 = lab_inst.param.digits3;
 
-  std::vector<Rq> h_tilde(l3 * h.size());
-  ICICLE_CHECK(decompose(h.data(), h.size(), base3, {}, h_tilde.data(), h_tilde.size()));
+  std::vector<Rq> h_tilde = fixed_length_decompose(h, base3, l3);
   std::vector<Tq> h_tilde_hat(h_tilde.size());
   ICICLE_CHECK(ntt(h_tilde.data(), h_tilde.size(), NTTDir::kForward, {}, h_tilde_hat.data()));
   log_step("Step 18 completed: Decomposed h to H_tilde");
@@ -543,8 +543,7 @@ std::vector<Rq> LabradorProver::prepare_recursion_witness(
   ICICLE_CHECK(ntt(pf.z_hat.data(), pf.z_hat.size(), NTTDir::kInverse, {}, z.data()));
 
   // Step 2: Decompose z using base0
-  std::vector<Rq> z_tilde(2 * n);
-  ICICLE_CHECK(decompose(z.data(), n, base0, {}, z_tilde.data(), z_tilde.size()));
+  std::vector<Rq> z_tilde = fixed_length_decompose(z, base0, 2);
 
   std::vector<Rq> temp(n);
   ICICLE_CHECK(recompose(z_tilde.data(), z_tilde.size(), base0, {}, temp.data(), temp.size()));
@@ -571,10 +570,9 @@ std::vector<Rq> LabradorProver::prepare_recursion_witness(
   // copy t  →  s_prime[2*nu*n_prime : 2*nu*n_prime + |t|]
   ICICLE_CHECK(preparer.copy_like_t(s_prime.data(), pf.t.data()));
 
-  // copy g  →  s_prime[(2*nu + L_t) * n_prime : ...]
+  // t, g and h form one contiguous v vector split into mu chunks.
   ICICLE_CHECK(preparer.copy_like_g(s_prime.data(), pf.g.data()));
 
-  // copy h  →  s_prime[(2*nu + L_t + L_g) * n_prime : ...]
   ICICLE_CHECK(preparer.copy_like_h(s_prime.data(), pf.h.data()));
 
   return s_prime;
@@ -582,6 +580,7 @@ std::vector<Rq> LabradorProver::prepare_recursion_witness(
 
 std::pair<std::vector<PartialTranscript>, LabradorBaseCaseProof> LabradorProver::prove()
 {
+  if (NUM_REC == 0) { throw std::invalid_argument("NUM_REC must be at least one"); }
   std::vector<PartialTranscript> trs;
   PartialTranscript part_trs;
   LabradorBaseCaseProof base_proof;
@@ -594,29 +593,32 @@ std::pair<std::vector<PartialTranscript>, LabradorBaseCaseProof> LabradorProver:
     std::tie(base_proof, part_trs) = base_prover.base_case_prover();
     trs.push_back(part_trs);
 
-    // Prepare recursion problem and witness
-    // NOTE: base0 needs to be large enough
-    uint32_t base0 = calc_base0(lab_inst_i.param.r, OP_NORM_BOUND, lab_inst_i.param.beta);
-    size_t m = lab_inst_i.param.t_len() + lab_inst_i.param.g_len() + lab_inst_i.param.h_len();
-    auto [mu, nu] = compute_mu_nu(lab_inst_i.param.n, m);
+    const LabradorTransitionPlan transition = derive_transition_plan(lab_inst_i.param);
+    const uint32_t base0 = transition.z_base;
+    const size_t mu = transition.mu;
+    const size_t nu = transition.nu;
 
     S_i = prepare_recursion_witness(lab_inst_i.param, base_proof, base0, mu, nu);
+    const long double next_norm = coefficient_l2_norm(S_i);
+    if (!(next_norm <= static_cast<long double>(transition.beta_next))) {
+      throw std::runtime_error(
+        "LaBRADOR heuristic beta' was exceeded; restart with a new transcript or a larger audited bound");
+    }
     EqualityInstance final_const = base_prover.lab_inst.equality_constraints[0];
     lab_inst_i = prepare_recursion_instance(base_prover.lab_inst.param, final_const, part_trs, base0, mu, nu);
+
+    if (!lab_witness_legit(lab_inst_i, S_i)) {
+      throw std::runtime_error("derived recursion witness does not satisfy the derived relation");
+    }
 
     oracle = base_prover.oracle;
 
     if (SHOW_STEPS) {
       std::cout << "\tRecursion problem prepared\n";
-      std::cout << "\tn= " << lab_inst_i.param.n << ", r= " << lab_inst_i.param.r << "\n";
-      std::cout << "\tProof size= " << base_proof.size() << " B\n";
-    }
-    if (CONSISTENCY_CHECKS) {
-      if (lab_witness_legit(lab_inst_i, S_i)) {
-        std::cout << "\tRecursion problem-witness valid\n";
-      } else {
-        throw std::runtime_error("\tRecursion problem-witness INVALID\n");
-      }
+      std::cout << "\tn= " << lab_inst_i.param.n << ", r= " << lab_inst_i.param.r
+                << ", beta= " << lab_inst_i.param.beta << ", actual norm= "
+                << static_cast<double>(next_norm) << "\n";
+      std::cout << "\tIntermediate response folded (not transmitted): " << base_proof.size() << " B\n";
     }
   }
   if (SHOW_STEPS) { std::cout << "Prover::Recursion iteration = " << NUM_REC - 1 << "\n"; }

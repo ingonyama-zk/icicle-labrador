@@ -1,5 +1,19 @@
 #include "verifier.h"
 
+void LabradorBaseVerifier::validate_prover_message_shape() const
+{
+  const BaseProverMessages& message = trs.prover_msg;
+  if (message.u1.size() != lab_inst.param.kappa1 ||
+      message.u2.size() != lab_inst.param.kappa2 ||
+      message.p.size() != lab_inst.param.JL_out ||
+      message.b_agg.size() != lab_inst.param.num_aggregation_rounds) {
+    throw std::invalid_argument("malformed LaBRADOR prover message dimensions");
+  }
+  if (message.JL_i >= (1U << 20)) {
+    throw std::invalid_argument("LaBRADOR JL retry counter exceeds the canonical limit");
+  }
+}
+
 // Fills up trs correctly assuming trs.prover_msg are correctly filled
 void LabradorBaseVerifier::create_transcript()
 {
@@ -13,8 +27,12 @@ void LabradorBaseVerifier::create_transcript()
   // 2. seed2 from JL_i and p
   size_t JL_i = trs.prover_msg.JL_i;
   const std::vector<Zq>& p = trs.prover_msg.p;
-  std::vector<std::byte> jl_buf(sizeof(size_t));
-  std::memcpy(jl_buf.data(), &JL_i, sizeof(size_t));
+  std::vector<std::byte> jl_buf;
+  jl_buf.reserve(sizeof(uint64_t) + p.size() * sizeof(Zq));
+  const uint64_t jl_counter = static_cast<uint64_t>(JL_i);
+  for (size_t byte = 0; byte < sizeof(jl_counter); ++byte) {
+    jl_buf.push_back(std::byte((jl_counter >> (8 * byte)) & 0xffU));
+  }
   jl_buf.insert(
     jl_buf.end(), reinterpret_cast<const std::byte*>(p.data()),
     reinterpret_cast<const std::byte*>(p.data()) + p.size() * sizeof(Zq));
@@ -84,22 +102,33 @@ bool LabradorBaseVerifier::_verify_base_proof(const LabradorBaseCaseProof& base_
   auto& challenges_hat = trs.challenges_hat;
   auto final_const = lab_inst.equality_constraints[0];
 
+  if (z_hat.size() != n || t_tilde.size() != lab_inst.param.t_len() ||
+      g_tilde.size() != lab_inst.param.g_len() || h_tilde.size() != lab_inst.param.h_len()) {
+    std::cout << "Malformed final LaBRADOR response dimensions\n";
+    return false;
+  }
+
   bool t_tilde_small = true, g_tilde_small = true, h_tilde_small = true;
   size_t base1 = lab_inst.param.base1;
   size_t base2 = lab_inst.param.base2;
   size_t base3 = lab_inst.param.base3;
 
-  // 1. LInfinity checks: check t_tilde, g_tilde, h_tilde are small- correctly decomposed
+  // 1. Only the low decomposition limbs are coefficient-bounded.  The final
+  // limb is the unrestricted quotient (Figure 3, Lines 11--13).
+  const size_t pair_count = r * (r + 1) / 2;
+  const size_t t_low_size = (lab_inst.param.digits1 - 1) * r * lab_inst.param.kappa;
+  const size_t g_low_size = (lab_inst.param.digits2 - 1) * pair_count;
+  const size_t h_low_size = (lab_inst.param.digits3 - 1) * pair_count;
   // bounds + 1 because norm check uses strict inequality
   ICICLE_CHECK(check_norm_bound(
-    reinterpret_cast<const Zq*>(t_tilde.data()), t_tilde.size() * d, eNormType::LInfinity, (base1 + 1) / 2 + 1, {},
+    reinterpret_cast<const Zq*>(t_tilde.data()), t_low_size * d, eNormType::LInfinity, base1 / 2 + 1, {},
     &t_tilde_small));
   ICICLE_CHECK(check_norm_bound(
-    reinterpret_cast<const Zq*>(h_tilde.data()), h_tilde.size() * d, eNormType::LInfinity, (base2 + 1) / 2 + 1, {},
-    &h_tilde_small));
-  ICICLE_CHECK(check_norm_bound(
-    reinterpret_cast<const Zq*>(g_tilde.data()), g_tilde.size() * d, eNormType::LInfinity, (base3 + 1) / 2 + 1, {},
+    reinterpret_cast<const Zq*>(g_tilde.data()), g_low_size * d, eNormType::LInfinity, base2 / 2 + 1, {},
     &g_tilde_small));
+  ICICLE_CHECK(check_norm_bound(
+    reinterpret_cast<const Zq*>(h_tilde.data()), h_low_size * d, eNormType::LInfinity, base3 / 2 + 1, {},
+    &h_tilde_small));
 
   // Fail if any of the LInfinity are large
   if (!(t_tilde_small && h_tilde_small && g_tilde_small)) {
@@ -108,8 +137,6 @@ bool LabradorBaseVerifier::_verify_base_proof(const LabradorBaseCaseProof& base_
   }
 
   // 2. L2 checks
-
-  // TODO: LInfinity for t,g,h already checked. Do we need to do a L2 check for them too?
   bool z_small = true;
   // z = INTT(z_hat)
   std::vector<Rq> z(z_hat.size());
@@ -124,6 +151,17 @@ bool LabradorBaseVerifier::_verify_base_proof(const LabradorBaseCaseProof& base_
 
   if (!z_small) {
     std::cout << "L2 norm check for z failed\n";
+    return false;
+  }
+
+  const LabradorTransitionPlan transition = derive_transition_plan(lab_inst.param);
+  std::vector<Rq> target_witness = fixed_length_decompose(z, transition.z_base, 2);
+  target_witness.insert(target_witness.end(), t_tilde.begin(), t_tilde.end());
+  target_witness.insert(target_witness.end(), g_tilde.begin(), g_tilde.end());
+  target_witness.insert(target_witness.end(), h_tilde.begin(), h_tilde.end());
+  const long double target_norm = coefficient_l2_norm(target_witness);
+  if (!(target_norm <= static_cast<long double>(transition.beta_next))) {
+    std::cout << "Consolidated target-relation L2 norm exceeds beta'\n";
     return false;
   }
 
@@ -186,7 +224,7 @@ bool LabradorBaseVerifier::_verify_base_proof(const LabradorBaseCaseProof& base_
 
   // Compute relevant matrix, vectors for the rest of the checks
 
-  size_t r_choose_2 = (r * (r + 1)) / 2;
+  size_t r_choose_2 = pair_count;
   std::vector<Rq> g(r_choose_2);
   ICICLE_CHECK(recompose(g_tilde.data(), g_tilde.size(), base2, {}, g.data(), g.size()));
   std::vector<Rq> G = reconstruct_symm_matrix(g, r);
@@ -293,8 +331,7 @@ void LabradorBaseVerifier::agg_const_zero_constraints()
     return k * JL_out + l;
   };
 
-  std::vector<std::byte> jl_seed(seed1);
-  jl_seed.push_back(std::byte(JL_i));
+  std::vector<std::byte> jl_seed = append_u64_le(seed1.data(), seed1.size(), static_cast<uint64_t>(JL_i));
 
   DeviceVector<Rq> Q(JL_out * r * n);
 
@@ -477,6 +514,7 @@ bool LabradorBaseVerifier::fully_verify(const LabradorBaseCaseProof& base_proof)
 
 bool LabradorVerifier::verify()
 {
+  if (NUM_REC == 0 || prover_msgs.size() != NUM_REC) { return false; }
   LabradorInstance lab_inst_i = lab_inst;
   for (size_t i = 0; i < NUM_REC - 1; i++) {
     // std::cout << "Verifier::Recursion iteration = " << i << "\n";
@@ -487,15 +525,16 @@ bool LabradorVerifier::verify()
     }
     // Part verify correctly aggregates constraints
 
-    // Prepare recursion problem
-    // NOTE: base0 needs to be large enough
-    uint32_t base0 = calc_base0(lab_inst_i.param.r, OP_NORM_BOUND, lab_inst_i.param.beta);
-    size_t m = lab_inst_i.param.t_len() + lab_inst_i.param.g_len() + lab_inst_i.param.h_len();
-    auto [mu, nu] = compute_mu_nu(lab_inst_i.param.n, m);
+    const LabradorTransitionPlan transition = derive_transition_plan(lab_inst_i.param);
 
     EqualityInstance final_const = base_verifier.lab_inst.equality_constraints[0];
-    lab_inst_i =
-      prepare_recursion_instance(base_verifier.lab_inst.param, final_const, base_verifier.trs, base0, mu, nu);
+    lab_inst_i = prepare_recursion_instance(
+      base_verifier.lab_inst.param,
+      final_const,
+      base_verifier.trs,
+      transition.z_base,
+      transition.mu,
+      transition.nu);
     oracle = base_verifier.oracle;
 
     // std::cout << "\tVerifier::Recursion problem prepared\n";

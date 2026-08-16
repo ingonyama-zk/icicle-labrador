@@ -102,6 +102,7 @@ struct LabradorProver {
       : lab_inst(lab_inst), S(S), oracle(create_oracle_seed(oracle_seed, oracle_seed_len, lab_inst)), NUM_REC(NUM_REC)
   {
     if (S.size() != lab_inst.param.r * lab_inst.param.n) { throw std::invalid_argument("S must have size r * n"); }
+    if (NUM_REC == 0) { throw std::invalid_argument("NUM_REC must be at least one"); }
   }
 
   /// @brief Prepares the recursion witness for the next round of protocol
