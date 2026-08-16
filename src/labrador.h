@@ -3,7 +3,7 @@
 /// @file
 /// @brief High-level LaBRADOR APIs and types: NTT, vector ops, JL projection, norm checks, and sampling.
 
-#include "icicle/rings/params/babykoala.h" // Zq, Rq, Tq, etc.
+#include "icicle/rings/params/labradorq40.h" // Zq, Rq, Tq, etc.
 
 // TODO(Yuval): Move implementation to source file and reduce header dependencies
 #include "icicle/vec_ops.h"
@@ -23,20 +23,58 @@ namespace icicle {
     // Type Aliases
     //------------------------------------------------------------------------------
 
-    using Zq = ::babykoala::Zq;
-    using PolyRing = ::babykoala::PolyRing; // Flat arrays of Zq[d]; used as both Rq and Tq
+    using Zq = ::labradorq40::Zq;
+    using PolyRing = ::labradorq40::PolyRing; // Flat arrays of Zq[d]; used as both Rq and Tq
     using Rq = PolyRing;
     using Tq = PolyRing;
+
+    // q = 2^40 - 195 has no primitive 128-th root, so Rq cannot be
+    // diagonalized into 64 Zq slots.  Keep the public Tq layout for API and
+    // transcript compatibility, but interpret it as coefficient-domain data.
+    // Polynomial products below are exact negacyclic convolutions on the CPU.
+    namespace coefficient_backend {
+      inline constexpr bool HAS_DIRECT_NEGACYCLIC_NTT = false;
+      inline constexpr const char* MODE_NAME = "exact-coefficient-karatsuba-cpu";
+
+      eIcicleError representation_copy(
+        const PolyRing* input, size_t size, const NegacyclicNTTConfig& config, PolyRing* output);
+
+      eIcicleError matmul(
+        const Tq* A,
+        uint32_t A_nof_rows,
+        uint32_t A_nof_cols,
+        const Tq* B,
+        uint32_t B_nof_rows,
+        uint32_t B_nof_cols,
+        const MatMulConfig& config,
+        Tq* C);
+
+      eIcicleError vector_mul(
+        const Tq* a, const Tq* b, uint64_t size, const VecOpsConfig& config, Tq* output);
+    } // namespace coefficient_backend
+
+    /// A scalar embedded into the exact coefficient-domain Tq representation.
+    inline Tq constant_tq(const Zq& value)
+    {
+      Tq result{};
+      result.values[0] = value;
+      return result;
+    }
 
     //------------------------------------------------------------------------------
     // NTT: Rq <-> Tq (Negacyclic, d-odd roots of -1)
     //------------------------------------------------------------------------------
 
-    /// @brief Negacyclic NTT or INTT on Rq elements.
+    /// @brief Representation boundary between Rq and Tq.
+    ///
+    /// For the exact requested q40 modulus this is intentionally an identity copy:
+    /// Tq is coefficient-domain storage and all Tq products are routed through
+    /// exact negacyclic convolution.  It is not a direct-q NTT.
     inline eIcicleError
-    ntt(const PolyRing* input, int size, NTTDir dir, const NegacyclicNTTConfig& config, PolyRing* output)
+    ntt(const PolyRing* input, size_t size, NTTDir dir, const NegacyclicNTTConfig& config, PolyRing* output)
     {
-      return icicle::ntt(input, size, dir, config, output);
+      (void)dir;
+      return coefficient_backend::representation_copy(input, size, config, output);
     }
 
     //------------------------------------------------------------------------------
@@ -55,7 +93,8 @@ namespace icicle {
       const MatMulConfig& config,
       Tq* C)
     {
-      return icicle::matmul(A, A_nof_rows, A_nof_cols, B, B_nof_rows, B_nof_cols, config, C);
+      return coefficient_backend::matmul(
+        A, A_nof_rows, A_nof_cols, B, B_nof_rows, B_nof_cols, config, C);
     }
 
     inline eIcicleError matrix_transpose(
@@ -76,7 +115,7 @@ namespace icicle {
 
     inline eIcicleError vector_mul(const Tq* a, const Tq* b, uint64_t size, const VecOpsConfig& config, Tq* output)
     {
-      return icicle::vector_mul(a, b, size, config, output);
+      return coefficient_backend::vector_mul(a, b, size, config, output);
     }
 
     inline eIcicleError

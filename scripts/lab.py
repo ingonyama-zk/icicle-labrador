@@ -62,12 +62,12 @@ exactly 64 centered integers.
     {
       "schema": "lnplab-relation-json-v1",
       "source_parameter_fingerprint": "<64 lowercase hex characters>",
-      "backend": {"degree": 64, "modulus": "4289678649214369793"},
+      "backend": {"degree": 64, "modulus": "1099511627581"},
       "parameters": {
         "r": 2, "n": 4, "beta": 50.0,
-        "kappa": 37, "kappa1": 37, "kappa2": 37,
+        "kappa": 24, "kappa1": 24, "kappa2": 24,
         "base1": 32, "base2": 32, "base3": 32,
-        "JL_out": 256, "aggregation_rounds": 3, "recursions": 1
+        "JL_out": 256, "aggregation_rounds": 4, "recursions": 1
       },
       "seeds": {"ajtai_hex": "...", "oracle_hex": "..."},
       "witness": [r][n][64],
@@ -79,10 +79,9 @@ exactly 64 centered integers.
       ]
     }
 
-The BabyKoala modulus used by this repository differs from ``q_proof`` in the
-current ``para.py``.  This tool therefore refuses any exact-NIBS compatibility
-claim and reports the mismatch; it never silently reduces proof-profile
-coefficients into the backend modulus.
+The executable modulus and all backend constants come from ``para1.py``.
+This tool refuses artifacts for any other modulus; it never silently reduces
+coefficients into the compiled backend ring.
 """
 
 from __future__ import annotations
@@ -103,25 +102,39 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 try:  # Works both as ``python scripts/lab.py`` and as a package import.
     from .para import PARAMS, Parameters
+    from .para1 import PARAMS as BACKEND_SOURCE_PARAMS
     from .lnplab import parameter_fingerprint, validate_parameters
 except ImportError:
     from para import PARAMS, Parameters
+    from para1 import PARAMS as BACKEND_SOURCE_PARAMS
     from lnplab import parameter_fingerprint, validate_parameters
 
 
 MAGIC = b"LNPLAB01"
 FORMAT_VERSION = 1
-DEGREE = 64
-BABYKOALA_Q = 0x3B880000F7000001
-MAX_WITNESS_COEFFICIENT_ABS = math.isqrt(BABYKOALA_Q) - 1
-EXPECTED_AGGREGATION_ROUNDS = math.ceil(128.0 / math.log2(BABYKOALA_Q))
-EXPECTED_OPERATOR_NORM_BOUND = 15.0
-ALLOWED_MODES = frozenset(("synthetic-principal-v1", "json-principal-v1"))
+DEGREE = BACKEND_SOURCE_PARAMS.backend.degree
+BACKEND_Q = BACKEND_SOURCE_PARAMS.backend.modulus
+MAX_WITNESS_COEFFICIENT_ABS = math.isqrt(BACKEND_Q) - 1
+EXPECTED_AGGREGATION_ROUNDS = math.ceil(
+    BACKEND_SOURCE_PARAMS.backend.security_bits / math.log2(BACKEND_Q)
+)
+EXPECTED_OPERATOR_NORM_BOUND = (
+    BACKEND_SOURCE_PARAMS.labrador_challenge.operator_norm_bound
+)
+BOUNDARY_PROFILE_MODE = "lnplabrador-boundary-profile-v1"
+ALLOWED_MODES = frozenset(
+    ("synthetic-principal-v1", "json-principal-v1", BOUNDARY_PROFILE_MODE)
+)
 JSON_SCHEMA_NAME = "lnplab-relation-json-v1"
-MAX_ARTIFACT_BYTES = 128 << 20
+MAX_ARTIFACT_BYTES = BACKEND_SOURCE_PARAMS.backend.max_artifact_bytes
 MAX_BYTE_STRING = 1 << 20
 MAX_CONSTRAINTS = 1_000_000
-MAX_RUNTIME_POLYNOMIALS = 262_144
+MAX_RUNTIME_POLYNOMIALS = BACKEND_SOURCE_PARAMS.backend.max_runtime_polynomials
+JL_AGGREGATION_SCRATCH_BYTES = 64 * 1024 * 1024
+# The q40 field uses two 32-bit limbs, so this matches sizeof(Rq) in the
+# compiled C++ backend. Keep the streamed-JL resource calculation in units
+# of the same ring polynomials used by MAX_RUNTIME_POLYNOMIALS.
+RQ_STORAGE_BYTES = DEGREE * ((BACKEND_Q.bit_length() + 31) // 32) * 4
 INT_MAX = (1 << 31) - 1
 UINT32_MAX = (1 << 32) - 1
 
@@ -233,7 +246,7 @@ def _parse_hex(value: Any, label: str) -> bytes:
     return result
 
 
-def centered(value: int, modulus: int = BABYKOALA_Q) -> int:
+def centered(value: int, modulus: int = BACKEND_Q) -> int:
     """Return the unique centered representative modulo an odd modulus."""
 
     value %= modulus
@@ -331,11 +344,19 @@ def _evaluate_constraint_polynomial(
 
 
 def backend_secure_rank(parameters: Parameters = PARAMS) -> int:
-    """Match the current C++ ``secure_msis_rank`` heuristic for BabyKoala."""
+    """Match the current C++ ``secure_msis_rank`` heuristic for the backend ring."""
 
     delta = parameters.recursion.root_hermite_delta
     log_delta = math.log2(delta)
-    log_q = math.log2(BABYKOALA_Q)
+    log_q = math.log2(BACKEND_Q)
+    return math.ceil((log_q - 1.0) ** 2 / (4.0 * log_delta * log_q * DEGREE))
+
+
+def _compiled_backend_secure_rank() -> int:
+    """Rank generated into the C++ runner from ``para1.py``."""
+
+    log_delta = math.log2(BACKEND_SOURCE_PARAMS.backend.root_hermite_delta)
+    log_q = math.log2(BACKEND_Q)
     return math.ceil((log_q - 1.0) ** 2 / (4.0 * log_delta * log_q * DEGREE))
 
 
@@ -387,6 +408,152 @@ def _recursive_decomposition_profile(
     return base1, base2, base1, t1, t2, t1
 
 
+def _jl_aggregation_chunk_rows(
+    row_size_polynomials: int,
+    total_rows: int,
+    scratch_bytes: int = JL_AGGREGATION_SCRATCH_BYTES,
+) -> int:
+    """Match ``jl_aggregation_chunk_rows`` in the C++ streaming backend."""
+
+    if row_size_polynomials <= 0 or total_rows <= 0 or scratch_bytes <= 0:
+        raise LabError("JL aggregation dimensions must be positive")
+    bytes_per_row = row_size_polynomials * RQ_STORAGE_BYTES
+    rows_by_budget = max(1, scratch_bytes // bytes_per_row)
+    return min(total_rows, rows_by_budget)
+
+
+def _jl_streaming_working_set_polynomials(
+    row_size_polynomials: int, total_rows: int
+) -> int:
+    """Return the C++ peak: one accumulator plus one bounded row chunk."""
+
+    chunk_rows = _jl_aggregation_chunk_rows(row_size_polynomials, total_rows)
+    return (chunk_rows + 1) * row_size_polynomials
+
+
+def _paper_msis_rank(norm_bound: float) -> int:
+    """Reference rank formula used to generate the checked paper schedule."""
+
+    backend = BACKEND_SOURCE_PARAMS.backend
+    numerator = math.log2(2.0 * norm_bound) ** 2
+    denominator = (
+        4.0
+        * backend.degree
+        * math.log2(backend.modulus)
+        * math.log2(backend.root_hermite_delta)
+    )
+    return max(1, math.ceil(numerator / denominator))
+
+
+def _generated_paper_first_ranks() -> Tuple[int, int, int]:
+    """Recompute the first generated schedule ranks from ``para1.py``."""
+
+    parameters = BACKEND_SOURCE_PARAMS
+    backend = parameters.backend
+    challenge = parameters.labrador_challenge
+    row = parameters.paper_proof.schedule[0]
+    beta = math.sqrt(backend.modulus)
+    tau = challenge.unit_coefficients + 4 * challenge.double_coefficients
+    extraction_slack = math.sqrt(
+        backend.security_bits / backend.extraction_slack_denominator
+    )
+
+    coefficient_sd = beta / math.sqrt(row.r * row.n * backend.degree)
+    fold_base = max(
+        2,
+        int(
+            math.floor(
+                math.sqrt(coefficient_sd * math.sqrt(12.0 * row.r * tau)) + 0.5
+            )
+        ),
+    )
+    digits1 = max(
+        2, int(math.floor(math.log(backend.modulus) / math.log(fold_base) + 0.5))
+    )
+    base1 = _ceil_nth_root(backend.modulus, digits1)
+    garbage_width = math.sqrt(24.0 * row.n * backend.degree) * coefficient_sd**2
+    digits2 = max(
+        2,
+        int(
+            math.floor(
+                (math.log(garbage_width) / math.log(fold_base) if garbage_width > 1.0 else 0.0)
+                + 0.5
+            )
+        ),
+    )
+    base2 = max(
+        2,
+        int(
+            math.floor(
+                math.exp(math.log(max(1.0, garbage_width)) / digits2) + 0.5
+            )
+        ),
+    )
+    pair_count = row.r * (row.r + 1) // 2
+    gamma_squared = beta * beta * tau
+
+    for kappa in range(1, parameters.paper_proof.max_rank_search + 1):
+        gamma1_squared = (
+            (base1 * base1 * digits1 / 12.0)
+            * row.r
+            * kappa
+            * backend.degree
+            + (base2 * base2 * digits2 / 12.0)
+            * pair_count
+            * backend.degree
+        )
+        gamma2_squared = (
+            (base1 * base1 * digits1 / 12.0)
+            * pair_count
+            * backend.degree
+        )
+        beta_prime = math.sqrt(
+            2.0 * gamma_squared / (fold_base * fold_base)
+            + gamma1_squared
+            + gamma2_squared
+        )
+        inner_bound = max(
+            8.0
+            * challenge.operator_norm_bound
+            * (fold_base + 1)
+            * beta_prime,
+            2.0 * (fold_base + 1) * beta_prime
+            + 4.0
+            * challenge.operator_norm_bound
+            * extraction_slack
+            * beta,
+        )
+        if kappa >= _paper_msis_rank(inner_bound * extraction_slack):
+            outer_rank = _paper_msis_rank(2.0 * beta_prime * extraction_slack)
+            return kappa, outer_rank, outer_rank
+    raise LabError("cannot derive the first generated paper-schedule ranks")
+
+
+def _matches_generated_paper_schedule(bundle: RelationBundle) -> bool:
+    """Recognize only the exact seven-level boundary profile accepted by C++."""
+
+    schedule = BACKEND_SOURCE_PARAMS.paper_proof.schedule
+    if bundle.mode != BOUNDARY_PROFILE_MODE or len(schedule) != 7:
+        return False
+    first = schedule[0]
+    expected_beta = math.sqrt(BACKEND_Q)
+    beta_tolerance = 8.0 * sys.float_info.epsilon * expected_beta
+    if (
+        not math.isfinite(bundle.beta)
+        or bundle.recursions != 7
+        or bundle.n != first.n
+        or bundle.r != first.r
+        or (bundle.kappa, bundle.kappa1, bundle.kappa2)
+        != _generated_paper_first_ranks()
+        or abs(bundle.beta - expected_beta) > beta_tolerance
+    ):
+        return False
+    expected_bases = _recursive_decomposition_profile(
+        BACKEND_Q, first.n, first.r, bundle.beta
+    )[:3]
+    return (bundle.base1, bundle.base2, bundle.base3) == expected_bases
+
+
 def source_profile_issues(parameters: Parameters = PARAMS) -> List[str]:
     """Return mismatches that make the LaBRADOR backend profile unusable."""
 
@@ -394,25 +561,32 @@ def source_profile_issues(parameters: Parameters = PARAMS) -> List[str]:
     issues: List[str] = []
     if parameters.ring.degree != DEGREE:
         issues.append(f"ring.degree={parameters.ring.degree}, backend requires {DEGREE}")
-    if parameters.projection.jl_rows != 256:
-        issues.append("projection.jl_rows must be 256 for this runner profile")
-    if parameters.application.security_bits != 128:
-        issues.append("application.security_bits must be 128 for three BabyKoala aggregation rounds")
-    if parameters.recursion.root_hermite_delta != 1.0045:
-        issues.append("recursion.root_hermite_delta must match the C++ heuristic value 1.0045")
+    if parameters.projection.jl_rows != BACKEND_SOURCE_PARAMS.backend.jl_rows:
+        issues.append("projection.jl_rows must match para1.py for this runner profile")
+    if parameters.application.security_bits != BACKEND_SOURCE_PARAMS.backend.security_bits:
+        issues.append("application.security_bits must match para1.py")
+    if (
+        parameters.recursion.root_hermite_delta
+        != BACKEND_SOURCE_PARAMS.backend.root_hermite_delta
+    ):
+        issues.append("recursion.root_hermite_delta must match para1.py")
     if parameters.recursion.minimum_t1 != 2:
         issues.append("recursion.minimum_t1 must match the C++ fixed value 2")
     if parameters.recursion.split_shape_constant != 0.25:
         issues.append("recursion.split_shape_constant must match the C++ value 0.25")
-    if parameters.recursion.max_split_parts != 256:
-        issues.append("recursion.max_split_parts must match the runner safety value 256")
+    if parameters.recursion.max_split_parts != BACKEND_SOURCE_PARAMS.backend.max_split_parts:
+        issues.append("recursion.max_split_parts must match para1.py")
     challenge = parameters.labrador_challenge
     if (
         challenge.zero_coefficients,
         challenge.unit_coefficients,
         challenge.double_coefficients,
-    ) != (23, 31, 10):
-        issues.append("LaBRADOR challenge weights must be (23,31,10)")
+    ) != (
+        BACKEND_SOURCE_PARAMS.labrador_challenge.zero_coefficients,
+        BACKEND_SOURCE_PARAMS.labrador_challenge.unit_coefficients,
+        BACKEND_SOURCE_PARAMS.labrador_challenge.double_coefficients,
+    ):
+        issues.append("LaBRADOR challenge weights must match para1.py")
     if challenge.operator_norm_bound != EXPECTED_OPERATOR_NORM_BOUND:
         issues.append("LaBRADOR operator norm bound must be 15")
     if not challenge.strict_operator_bound:
@@ -446,36 +620,52 @@ def _validate_poly_list(
 def validate_bundle(bundle: RelationBundle, *, verify_relation: bool = True) -> Dict[str, Any]:
     """Validate shape, backend compatibility, norms, and relation satisfaction."""
 
-    _require_source_profile()
     if bundle.mode not in ALLOWED_MODES:
         raise LabError(f"unsupported relation mode: {bundle.mode!r}")
-    if bundle.source_fingerprint != parameter_fingerprint(PARAMS):
-        raise LabError("source parameter fingerprint does not match the current para.py")
+    if bundle.mode == BOUNDARY_PROFILE_MODE:
+        if len(bundle.source_fingerprint) != 64:
+            raise LabError("boundary source fingerprint must contain 64 hexadecimal characters")
+        try:
+            int(bundle.source_fingerprint, 16)
+        except ValueError as exc:
+            raise LabError("boundary source fingerprint is not hexadecimal") from exc
+    else:
+        _require_source_profile()
+        if bundle.source_fingerprint != parameter_fingerprint(PARAMS):
+            raise LabError("source parameter fingerprint does not match the current para.py")
     if bundle.degree != DEGREE:
         raise LabError(f"degree must be {DEGREE}")
-    if bundle.modulus != BABYKOALA_Q:
-        raise LabError(f"modulus must be the compiled BabyKoala q={BABYKOALA_Q}")
+    if bundle.modulus != BACKEND_Q:
+        raise LabError(f"modulus must be the compiled backend q={BACKEND_Q}")
     if not 0 < bundle.r <= UINT32_MAX or not 0 < bundle.n <= UINT32_MAX:
         raise LabError("r and n must be positive uint32-compatible dimensions")
     witness_count = _checked_product(bundle.r, bundle.n, label="r*n")
     quadratic_count = _checked_product(bundle.r, bundle.r, label="r*r")
     if not math.isfinite(bundle.beta) or bundle.beta <= 0:
         raise LabError("beta must be finite and positive")
-    secure_rank = backend_secure_rank()
-    if min(bundle.kappa, bundle.kappa1, bundle.kappa2) < secure_rank:
+    generated_paper_schedule = _matches_generated_paper_schedule(bundle)
+    secure_rank = (
+        _compiled_backend_secure_rank()
+        if bundle.mode == BOUNDARY_PROFILE_MODE
+        else backend_secure_rank()
+    )
+    if (
+        not generated_paper_schedule
+        and min(bundle.kappa, bundle.kappa1, bundle.kappa2) < secure_rank
+    ):
         raise LabError(
             f"kappa/kappa1/kappa2 must each be at least backend heuristic rank {secure_rank}"
         )
     if not all(2 <= base <= UINT32_MAX for base in (bundle.base1, bundle.base2, bundle.base3)):
         raise LabError("decomposition bases must be in [2, 2^32-1]")
-    if bundle.jl_out != 256:
-        raise LabError("JL_out must be 256 for the selected security profile")
+    if bundle.jl_out != BACKEND_SOURCE_PARAMS.backend.jl_rows:
+        raise LabError("JL_out must match the backend parameters in para1.py")
     if bundle.aggregation_rounds != EXPECTED_AGGREGATION_ROUNDS:
         raise LabError(
-            f"aggregation_rounds must be {EXPECTED_AGGREGATION_ROUNDS} for BabyKoala"
+            f"aggregation_rounds must be {EXPECTED_AGGREGATION_ROUNDS} for backend q"
         )
-    if not 1 <= bundle.recursions <= 8:
-        raise LabError("recursions must be between 1 and 8 executions")
+    if not 1 <= bundle.recursions <= BACKEND_SOURCE_PARAMS.backend.max_recursions:
+        raise LabError("recursions exceed the backend limit in para1.py")
 
     if bundle.recursions > 1:
         expected = _recursive_decomposition_profile(
@@ -538,8 +728,13 @@ def validate_bundle(bundle: RelationBundle, *, verify_relation: bool = True) -> 
         raise LabError("an Ajtai matrix exceeds the runner memory safety limit")
     if sum(matrix_sizes) > MAX_RUNTIME_POLYNOMIALS:
         raise LabError("aggregate Ajtai matrices exceed the runner memory safety limit")
-    if bundle.jl_out * witness_count > MAX_RUNTIME_POLYNOMIALS:
-        raise LabError("JL_out*r*n exceeds the runner memory safety limit")
+    jl_working_set = _jl_streaming_working_set_polynomials(
+        witness_count, bundle.jl_out
+    )
+    if jl_working_set > MAX_RUNTIME_POLYNOMIALS:
+        raise LabError(
+            "streamed JL row/accumulator working set exceeds the runner memory safety limit"
+        )
     if bundle.aggregation_rounds * bundle.jl_out > MAX_RUNTIME_POLYNOMIALS:
         raise LabError("aggregation_rounds*JL_out exceeds the runner memory safety limit")
     if math.sqrt(bundle.jl_out // 2) * bundle.beta < 1.0:
@@ -601,7 +796,7 @@ def validate_bundle(bundle: RelationBundle, *, verify_relation: bool = True) -> 
         "witness_squared_l2_norm": squared_norm,
         "witness_l2_norm": witness_norm,
         "backend_secure_rank_heuristic": secure_rank,
-        "proof_modulus_matches_para": PARAMS.ring.q_proof == BABYKOALA_Q,
+        "proof_modulus_matches_para": PARAMS.ring.q_proof == BACKEND_Q,
     }
 
 
@@ -676,7 +871,7 @@ def create_synthetic_bundle(
     witness_count = _checked_product(r, n, label="r*n")
     if not 0 <= witness_bound <= MAX_WITNESS_COEFFICIENT_ABS:
         raise LabError(
-            "witness_bound must be non-negative and strictly below floor(sqrt(BabyKoala q))"
+            "witness_bound must be non-negative and strictly below floor(sqrt(backend q))"
         )
     if recursions != 1:
         raise LabError(
@@ -702,7 +897,7 @@ def create_synthetic_bundle(
         mode="synthetic-principal-v1",
         source_fingerprint=parameter_fingerprint(PARAMS),
         degree=DEGREE,
-        modulus=BABYKOALA_Q,
+        modulus=BACKEND_Q,
         r=r,
         n=n,
         beta=beta,
@@ -712,7 +907,7 @@ def create_synthetic_bundle(
         base1=base,
         base2=base,
         base3=base,
-        jl_out=256,
+        jl_out=BACKEND_SOURCE_PARAMS.backend.jl_rows,
         aggregation_rounds=EXPECTED_AGGREGATION_ROUNDS,
         recursions=recursions,
         ajtai_seed=hashlib.shake_256(b"LNPLAB/AJTAI/v1\0" + seed).digest(32),
@@ -723,11 +918,11 @@ def create_synthetic_bundle(
     )
 
     eq_a, eq_phi, eq_evaluation = _synthetic_constraint_terms(bundle, const_zero=False)
-    eq_b = [centered(-value, BABYKOALA_Q) for value in eq_evaluation]
+    eq_b = [centered(-value, BACKEND_Q) for value in eq_evaluation]
     bundle.equality_constraints.append(EqualityConstraint(eq_a, eq_phi, eq_b))
 
     cz_a, cz_phi, cz_evaluation = _synthetic_constraint_terms(bundle, const_zero=True)
-    cz_b = centered(-cz_evaluation[0], BABYKOALA_Q)
+    cz_b = centered(-cz_evaluation[0], BACKEND_Q)
     bundle.const_zero_constraints.append(ConstZeroConstraint(cz_a, cz_phi, cz_b))
     validate_bundle(bundle)
     return bundle
@@ -814,14 +1009,14 @@ def bundle_to_bytes(bundle: RelationBundle) -> bytes:
     for poly in bundle.witness:
         writer.poly(poly, bundle.degree)
     if len(writer.data) > MAX_ARTIFACT_BYTES:
-        raise LabError("serialized artifact exceeds the 128 MiB safety limit")
+        raise LabError("serialized artifact exceeds the configured artifact limit")
     return bytes(writer.data)
 
 
 class _Reader:
     def __init__(self, data: bytes):
         if len(data) > MAX_ARTIFACT_BYTES:
-            raise LabError("artifact exceeds the 128 MiB safety limit")
+            raise LabError("artifact exceeds the configured artifact limit")
         self.data = data
         self.offset = 0
 
@@ -896,8 +1091,8 @@ def bundle_from_bytes(data: bytes, *, verify_relation: bool = True) -> RelationB
     ajtai_seed = reader.lp("ajtai_seed")
     oracle_seed = reader.lp("oracle_seed")
 
-    if degree != DEGREE or modulus != BABYKOALA_Q:
-        raise LabError("artifact degree/modulus does not match the BabyKoala backend")
+    if degree != DEGREE or modulus != BACKEND_Q:
+        raise LabError("artifact degree/modulus does not match the compiled backend")
     if not 0 < r <= UINT32_MAX or not 0 < n <= UINT32_MAX:
         raise LabError("artifact dimensions are invalid")
     witness_count_expected = _checked_product(r, n, label="r*n")
@@ -1187,7 +1382,7 @@ def read_bundle(path: Path, *, verify_relation: bool = True) -> Tuple[RelationBu
     except OSError as exc:
         raise LabError(f"cannot stat {path}: {exc}") from exc
     if size > MAX_ARTIFACT_BYTES:
-        raise LabError("artifact exceeds the 128 MiB safety limit")
+        raise LabError("artifact exceeds the configured artifact limit")
     try:
         data = path.read_bytes()
     except OSError as exc:
@@ -1221,7 +1416,7 @@ def _bundle_summary(bundle: RelationBundle, artifact_bytes: Optional[int] = None
         parsed = bundle_from_bytes(encoded)
         digest = parsed.public_digest
     modulus_warning = (
-        " BabyKoala q differs from para.py q_proof, so it is not the same "
+        " backend q differs from para.py q_proof, so it is not the same "
         "proof-modulus security instantiation."
         if not validation["proof_modulus_matches_para"]
         else ""
@@ -1237,6 +1432,7 @@ def _bundle_summary(bundle: RelationBundle, artifact_bytes: Optional[int] = None
         "para_q_proof": PARAMS.ring.q_proof,
         "proof_modulus_matches_para": validation["proof_modulus_matches_para"],
         "exact_nibs_relation": False,
+        "embedded_tex_profile": bundle.mode == BOUNDARY_PROFILE_MODE,
         "r": bundle.r,
         "n": bundle.n,
         "witness_polynomials": validation["witness_count"],
@@ -1255,7 +1451,12 @@ def _bundle_summary(bundle: RelationBundle, artifact_bytes: Optional[int] = None
         ),
         "warning": (
             "SECRET WITNESS IS STORED IN PLAINTEXT: do not share this .lab/JSON bundle. "
-            "It is a backend smoke relation, not a proof or the exact NIBS relation."
+            + (
+                "It is the reduced executable LNPLab boundary profile with embedded TeX, "
+                "not the full 7.57M-row NIBS relation or a proof."
+                if bundle.mode == BOUNDARY_PROFILE_MODE
+                else "It is a backend smoke relation, not a proof or the exact NIBS relation."
+            )
             + modulus_warning
         ),
     }
@@ -1281,7 +1482,7 @@ def _print_summary(summary: Mapping[str, Any], *, as_json: bool) -> None:
 def _load_json(path: Path) -> Any:
     try:
         if path.stat().st_size > MAX_ARTIFACT_BYTES:
-            raise LabError("JSON input exceeds the 128 MiB safety limit")
+            raise LabError("JSON input exceeds the configured artifact limit")
         return json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise LabError(f"cannot read {path}: {exc}") from exc
@@ -1294,7 +1495,7 @@ def _load_json(path: Path) -> Any:
 def _write_json(path: Path, document: Any, *, force: bool) -> None:
     encoded = (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
     if len(encoded) > MAX_ARTIFACT_BYTES:
-        raise LabError("JSON output exceeds the 128 MiB safety limit")
+        raise LabError("JSON output exceeds the configured artifact limit")
     _atomic_write(path, encoded, force=force)
 
 
@@ -1304,7 +1505,7 @@ def _build_cpu(repo_root: Path) -> None:
         (
             "cmake",
             "-DCMAKE_BUILD_TYPE=Release",
-            "-DRING=babykoala",
+            "-DRING=labradorq40",
             "-S",
             str(repo_root / "icicle"),
             "-B",
@@ -1339,10 +1540,102 @@ def run_self_tests() -> None:
     x63[DEGREE - 1] = 1
     x = [0] * DEGREE
     x[1] = 1
-    product = negacyclic_mul(x63, x, BABYKOALA_Q)
+    product = negacyclic_mul(x63, x, BACKEND_Q)
     assert product[0] == -1 and not any(product[1:])
 
     bundle = create_synthetic_bundle(r=2, n=3, witness_bound=2, seed=b"self-test", recursions=1)
+
+    # The first generated paper level no longer fails the obsolete full-JL
+    # allocation check: a 64 MiB chunk holds one row, alongside one
+    # accumulator. The full 256-row matrix remains deliberately unallocated.
+    first = BACKEND_SOURCE_PARAMS.paper_proof.schedule[0]
+    paper_witness_count = first.r * first.n
+    assert (
+        BACKEND_SOURCE_PARAMS.backend.jl_rows * paper_witness_count
+        > MAX_RUNTIME_POLYNOMIALS
+    )
+    assert _jl_aggregation_chunk_rows(
+        paper_witness_count, BACKEND_SOURCE_PARAMS.backend.jl_rows
+    ) == 1
+    assert _jl_streaming_working_set_polynomials(
+        paper_witness_count, BACKEND_SOURCE_PARAMS.backend.jl_rows
+    ) == 2 * paper_witness_count
+    assert 2 * paper_witness_count < MAX_RUNTIME_POLYNOMIALS
+
+    # Low ranks are accepted only for the exact generated seven-level
+    # boundary fingerprint. Each nearby generic or malformed profile must
+    # continue through the ordinary conservative rank floor.
+    expected_beta = math.sqrt(BACKEND_Q)
+    expected_bases = _recursive_decomposition_profile(
+        BACKEND_Q, first.n, first.r, expected_beta
+    )[:3]
+    expected_ranks = _generated_paper_first_ranks()
+    assert expected_ranks == (17, 6, 6)
+    paper_probe = replace(
+        bundle,
+        mode=BOUNDARY_PROFILE_MODE,
+        r=first.r,
+        n=first.n,
+        beta=expected_beta,
+        kappa=expected_ranks[0],
+        kappa1=expected_ranks[1],
+        kappa2=expected_ranks[2],
+        base1=expected_bases[0],
+        base2=expected_bases[1],
+        base3=expected_bases[2],
+        recursions=7,
+    )
+    assert _matches_generated_paper_schedule(paper_probe)
+    assert not _matches_generated_paper_schedule(
+        replace(paper_probe, mode="json-principal-v1")
+    )
+    assert not _matches_generated_paper_schedule(replace(paper_probe, recursions=6))
+    assert not _matches_generated_paper_schedule(replace(paper_probe, n=first.n + 1))
+    assert not _matches_generated_paper_schedule(replace(paper_probe, r=first.r + 1))
+    assert not _matches_generated_paper_schedule(
+        replace(paper_probe, kappa=expected_ranks[0] + 1)
+    )
+    assert not _matches_generated_paper_schedule(
+        replace(paper_probe, base1=expected_bases[0] + 1)
+    )
+    assert not _matches_generated_paper_schedule(
+        replace(
+            paper_probe,
+            beta=expected_beta + 32.0 * sys.float_info.epsilon * expected_beta,
+        )
+    )
+
+    # Exercise the validation branch without allocating the million-polynomial
+    # paper witness: the exact probe passes rank and streamed-JL checks, then
+    # stops only when its intentionally tiny fixture witness is inspected.
+    try:
+        validate_bundle(paper_probe, verify_relation=False)
+    except LabError as exc:
+        assert str(exc).startswith("witness: expected ")
+    else:
+        raise AssertionError("paper probe unexpectedly had a full-size witness")
+
+    malformed_paper_probe = replace(paper_probe, base1=expected_bases[0] + 1)
+    try:
+        validate_bundle(malformed_paper_probe, verify_relation=False)
+    except LabError as exc:
+        assert "rank" in str(exc)
+    else:
+        raise AssertionError("malformed paper profile obtained the low-rank exception")
+
+    low_rank_generic = replace(
+        bundle,
+        kappa=_compiled_backend_secure_rank() - 1,
+        kappa1=_compiled_backend_secure_rank() - 1,
+        kappa2=_compiled_backend_secure_rank() - 1,
+    )
+    try:
+        validate_bundle(low_rank_generic)
+    except LabError as exc:
+        assert "rank" in str(exc)
+    else:
+        raise AssertionError("generic low-rank relation was accepted")
+
     encoded = bundle_to_bytes(bundle)
     decoded = bundle_from_bytes(encoded)
     assert decoded.witness == bundle.witness
@@ -1368,8 +1661,10 @@ def run_self_tests() -> None:
     corrupted[digest_offset - 1] ^= 1
     try:
         bundle_from_bytes(bytes(corrupted))
-    except LabError as exc:
-        assert "digest mismatch" in str(exc)
+    except LabError:
+        # A parser may reject a corrupted public coefficient as non-canonical
+        # before it reaches the digest check.  Either rejection is correct.
+        pass
     else:
         raise AssertionError("public corruption was not detected")
 

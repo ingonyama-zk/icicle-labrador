@@ -3,13 +3,14 @@
 
 This module deliberately separates two notions:
 
-* the *paper schedule* below follows LaBRADOR Sections 5.3--5.5 using the
-  modulus and degree of the BabyKoala backend; and
+* the *paper schedule* below follows LaBRADOR Sections 5.3--5.7 using the
+  modulus and degree of the ``labradorq40`` backend; and
 * ``run`` invokes the repository's experimental C++ implementation.
 
 The latter is useful for research and integration tests, but is not a
 concrete-security claim.  In particular, this repository does not contain a
-Module-SIS estimator or the optimized final round from Section 5.6.  The v1
+Module-SIS estimator.  The optimized final round from Section 5.6 is enabled
+for recursive C++ proofs.  The v1
 ``.lab`` format carries the initial parameters and the C++ backend derives the
 same subsequent schedule; this module additionally emits a hash-addressed
 audit plan, whose hash is not part of the v1 proof statement.
@@ -59,7 +60,7 @@ except ImportError:
 
 PLAN_SCHEMA = "lnplab-recursive-plan-v1"
 PLANNER_VERSION = 1
-PAPER_SECTION = "LaBRADOR Sections 5.3--5.5"
+PAPER_SECTION = "LaBRADOR Sections 5.3--5.7"
 THEOREM = "LaBRADOR Theorem 5.1 and Remark 5.2"
 
 
@@ -269,9 +270,10 @@ def derive_level(
     recursed_target: bool,
     max_split_parts: int = PARAMS.recursion.max_split_parts,
     shape_constant: float = PARAMS.recursion.split_shape_constant,
-    modulus: int = lab.BABYKOALA_Q,
+    modulus: int = lab.BACKEND_Q,
     degree: int = lab.DEGREE,
     jl_out: int = 256,
+    section_5_6_transition: bool = False,
 ) -> Dict[str, Any]:
     """Derive one standard LaBRADOR level using the paper recurrence.
 
@@ -332,6 +334,16 @@ def derive_level(
         max_parts=max_split_parts,
         shape_constant=shape_constant,
     )
+    if section_5_6_transition:
+        split = {
+            **split,
+            "r_prime": split["nu"] + split["mu"],
+            "z_rows": split["nu"],
+            "z_padding_polynomials": split["nu"] * split["n_prime"] - n,
+            "padded_witness_polynomials": (
+                (split["nu"] + split["mu"]) * split["n_prime"]
+            ),
+        }
 
     gamma_squared = beta * beta * tau
     gamma1_squared = (
@@ -340,7 +352,9 @@ def derive_level(
     )
     gamma2_squared = (b1 * b1 * t1 / 12.0) * pair_count * degree
     beta_prime_squared = (
-        2.0 * gamma_squared / (b * b) + gamma1_squared + gamma2_squared
+        gamma_squared + gamma1_squared + gamma2_squared
+        if section_5_6_transition
+        else 2.0 * gamma_squared / (b * b) + gamma1_squared + gamma2_squared
     )
     beta_prime = math.sqrt(beta_prime_squared)
     for value, label in (
@@ -428,6 +442,9 @@ def derive_level(
         },
         "combined_v": {
             "order": ["t", "g", "h"],
+            "transition_kind": (
+                "section-5.6-unsplit-z" if section_5_6_transition else "section-5.3-standard"
+            ),
             "t_length": t_length,
             "g_length": g_length,
             "h_length": h_length,
@@ -486,6 +503,7 @@ def build_schedule(
             modulus=bundle.modulus,
             degree=bundle.degree,
             jl_out=bundle.jl_out,
+            section_5_6_transition=(executions > 1 and index == executions - 2),
         )
         result.append(level)
 
@@ -550,7 +568,7 @@ def make_plan(
         "prepared_statement_sha3_256": prepared_statement_digest,
         "source_parameter_fingerprint": bundle.source_fingerprint,
         "backend": {
-            "name": "BabyKoala",
+            "name": "labradorq40",
             "degree": bundle.degree,
             "modulus": str(bundle.modulus),
         },
@@ -578,15 +596,14 @@ def make_plan(
             "levels_differing_from_legacy_full_decomposition": fixed_digit_mismatches,
             "levels_exceeding_current_runner_memory_guard": runtime_limit_levels,
             "combined_v_packing_required": True,
-            "section_5_6_final_round_implemented": False,
+            "section_5_6_final_round_implemented": True,
         },
         "warnings": [
             "Ranks are research inputs, not outputs of a Module-SIS estimator.",
             "The C++ backend must enforce each beta-prime bound or abort the proof attempt.",
             "The v1 .lab bundle does not bind this audit plan's SHA-256 digest.",
-            "ICICLE's slow field sampler still needs a modulo-bias security audit.",
-            "BabyKoala challenge-difference invertibility is not certified for the paper assumption.",
-            "The optimized no-outer-commitment final round from Section 5.6 is not represented.",
+            "The exact-q coefficient backend is correctness-first; full-size CRT/NTT acceleration is not implemented.",
+            "The q40 challenge-difference invertibility assumption still needs a dedicated audit.",
         ],
     }
     return _attach_plan_digest(payload)
@@ -801,22 +818,22 @@ def run_self_tests() -> Dict[str, Any]:
         ranks=RankTriple(rank, rank, rank),
         recursed_target=True,
     )
-    assert rank == 37
+    assert rank == 24
     assert fixture["decomposition"]["z"]["base"] == 10
-    assert fixture["decomposition"]["t"] == {"base": 10, "fixed_digits": 19}
+    assert fixture["decomposition"]["t"] == {"base": 11, "fixed_digits": 12}
     assert fixture["decomposition"]["g"]["base"] == 7
     assert fixture["decomposition"]["g"]["fixed_digits"] == 3
-    assert fixture["decomposition"]["h"] == {"base": 10, "fixed_digits": 19}
+    assert fixture["decomposition"]["h"] == {"base": 11, "fixed_digits": 12}
     assert math.isclose(
         fixture["target_norm"]["beta_prime_squared"],
-        786168.6666666666,
+        400846.0,
         rel_tol=0.0,
         abs_tol=1e-9,
     )
     packing = fixture["combined_v"]["packing"]
-    assert fixture["combined_v"]["length"] == 1472
-    assert (packing["nu"], packing["mu"]) == (1, 8)
-    assert (packing["n_prime"], packing["r_prime"]) == (184, 10)
+    assert fixture["combined_v"]["length"] == 621
+    assert (packing["nu"], packing["mu"]) == (1, 6)
+    assert (packing["n_prime"], packing["r_prime"]) == (104, 8)
     assert packing["r_prime"] == 2 * packing["nu"] + packing["mu"]
 
     bundle = lab.create_synthetic_bundle(
@@ -840,8 +857,15 @@ def run_self_tests() -> Dict[str, Any]:
     for level in plan1["schedule"]:
         assert level["decomposition"]["g"]["fixed_digits"] >= 2
         split = level["combined_v"]["packing"]
-        assert split["r_prime"] == 2 * split["nu"] + split["mu"]
+        multiplier = (
+            1
+            if level["combined_v"]["transition_kind"]
+            == "section-5.6-unsplit-z"
+            else 2
+        )
+        assert split["r_prime"] == multiplier * split["nu"] + split["mu"]
         assert level["modular_jl"]["holds"]
+    assert plan1["schedule"][0]["combined_v"]["transition_kind"] == "section-5.6-unsplit-z"
 
     prepared = prepare_bundle(bundle, plan1)
     first_decomposition = plan1["schedule"][0]["decomposition"]

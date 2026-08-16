@@ -74,6 +74,11 @@ struct LabradorBaseProver {
   /// the base_case_proof for verification
   /// @note can only be called once meaningfully on the given `lab_inst`
   std::pair<LabradorBaseCaseProof, PartialTranscript> base_case_prover();
+
+  /// Optimized last execution from Section 5.6.  The instance must have been
+  /// produced by the un-decomposed final transition and therefore carry a
+  /// non-zero param.final_primary_count.
+  std::pair<LabradorSection56Proof, PartialTranscript> section_5_6_prover();
 };
 
 /// @brief Struct that performs the Prover actions for the entire Labrador protocol
@@ -113,11 +118,17 @@ struct LabradorProver {
   /// @param nu Recursion parameter nu
   /// @return r_prime X n_prime big Rq witness for the recursion problem
   static std::vector<Rq> prepare_recursion_witness(
-    const LabradorParam& prev_param, const LabradorBaseCaseProof& pf, uint32_t base0, size_t mu, size_t nu);
+    const LabradorParam& prev_param,
+    const LabradorBaseCaseProof& pf,
+    uint32_t base0,
+    size_t mu,
+    size_t nu,
+    bool decompose_z = true,
+    size_t n_prime_override = 0);
 
   /// @brief Creates the Labrador proof for the given `lab_inst`.
   /// @note Only modifies oracle
   /// @return (trs, final_proof) where trs is NUM_REC long vector of partial transcripts for each recursive instance
   /// of the protocol and final_proof is the base case proof for the last round
-  std::pair<std::vector<PartialTranscript>, LabradorBaseCaseProof> prove();
+  std::pair<std::vector<PartialTranscript>, LabradorFinalProof> prove();
 };

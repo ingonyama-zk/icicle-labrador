@@ -22,7 +22,6 @@ function(handle_ring TARGET)
   target_sources(${TARGET} PRIVATE
     src/fields/ffi_extern.cpp
     src/vec_ops.cpp
-    src/rings/rns_vec_ops.cpp
     src/rings/polyring_vec_ops.cpp
     src/rings/random_sampling.cpp
     src/matrix_ops.cpp
@@ -31,6 +30,9 @@ function(handle_ring TARGET)
     src/balanced_decomposition.cpp
     src/norm.cpp
     src/jl_projection.cpp)
+  if(RING STREQUAL "babykoala")
+    target_sources(${TARGET} PRIVATE src/rings/rns_vec_ops.cpp)
+  endif()
 endfunction()
 
 function(handle_ntt TARGET FEATURE_LIST)

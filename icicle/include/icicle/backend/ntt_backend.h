@@ -90,7 +90,7 @@ namespace icicle {
     }();                                                                                                               \
   }
 
-#ifdef RING
+#ifdef RING_HAS_RNS
   /*************************** NTT ***************************/
   using NttRingRnsImpl = std::function<eIcicleError(
     const Device& device,
@@ -152,5 +152,5 @@ namespace icicle {
         return true;                                                                                                   \
       }();                                                                                                             \
     }
-#endif // RING
+#endif // RING_HAS_RNS
 } // namespace icicle

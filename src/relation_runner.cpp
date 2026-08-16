@@ -1,5 +1,6 @@
 #include "examples_utils.h"
 #include "labrador.h"
+#include "proof_codec.h"
 #include "prover.h"
 #include "test_helpers.h"
 #include "types.h"
@@ -29,24 +30,26 @@ namespace {
 
 constexpr std::array<char, 8> FILE_MAGIC{{'L', 'N', 'P', 'L', 'A', 'B', '0', '1'}};
 constexpr uint32_t FILE_VERSION = 1;
-constexpr uint32_t RING_DEGREE = 64;
-constexpr uint64_t BABYKOALA_Q = 4'289'678'649'214'369'793ULL;
-constexpr uint64_t BABYKOALA_Q_HALF = BABYKOALA_Q / 2;
-constexpr uint64_t BABYKOALA_SQRT_Q_FLOOR = 2'071'153'941ULL;
+constexpr uint32_t RING_DEGREE = icicle::labrador::backend_config::RING_DEGREE;
+constexpr uint64_t BACKEND_Q = icicle::labrador::backend_config::RING_MODULUS;
+constexpr uint64_t BACKEND_Q_HALF = icicle::labrador::backend_config::RING_MODULUS_HALF;
+constexpr uint64_t BACKEND_SQRT_Q_FLOOR =
+  icicle::labrador::backend_config::RING_MODULUS_SQRT_FLOOR;
 constexpr size_t SHA3_256_BYTES = 32;
 
 // The current CPU SHA3 backend ultimately passes its input length as an
 // unsigned value.  A bounded artifact also prevents untrusted length fields
 // from causing unreasonable allocations before their shapes are checked.
-constexpr uint64_t MAX_FILE_BYTES = 128ULL * 1024ULL * 1024ULL;
+constexpr uint64_t MAX_FILE_BYTES = icicle::labrador::backend_config::MAX_ARTIFACT_BYTES;
 constexpr uint64_t MAX_MODE_BYTES = 128;
 constexpr uint64_t SOURCE_FINGERPRINT_BYTES = 64;
 constexpr uint64_t MAX_SEED_BYTES = 1024ULL * 1024ULL;
 // The runner is an integration harness, not a bulk untrusted-input service.
 // Core prover paths keep several deep copies/work buffers, so cap aggregate
 // ring-element counts conservatively because parsing and NTT need copies.
-constexpr size_t MAX_RUNTIME_POLYNOMIALS = 262'144;
-constexpr size_t MAX_SPLIT_PARTS = 256;
+constexpr size_t MAX_RUNTIME_POLYNOMIALS =
+  icicle::labrador::backend_config::MAX_RUNTIME_POLYNOMIALS;
+constexpr size_t MAX_SPLIT_PARTS = icicle::labrador::backend_config::MAX_SPLIT_PARTS;
 
 static_assert(sizeof(double) == sizeof(uint64_t), "This runner requires a binary64 double");
 static_assert(std::numeric_limits<double>::is_iec559, "This runner requires IEEE-754 doubles");
@@ -54,7 +57,13 @@ static_assert(Rq::d == RING_DEGREE, "The runner schema is fixed to degree 64");
 constexpr auto COMPILED_Q_STORAGE = Zq::get_modulus();
 constexpr uint64_t COMPILED_Q = uint64_t(COMPILED_Q_STORAGE.limbs[0]) |
                                 (uint64_t(COMPILED_Q_STORAGE.limbs[1]) << 32U);
-static_assert(COMPILED_Q == BABYKOALA_Q, "The runner schema does not match the compiled ring modulus");
+static_assert(COMPILED_Q == BACKEND_Q, "The runner schema does not match the compiled ring modulus");
+static_assert(
+  icicle::labrador::backend_config::CHALLENGE_ZERO_COEFFICIENTS +
+      icicle::labrador::backend_config::CHALLENGE_UNIT_COEFFICIENTS +
+      icicle::labrador::backend_config::CHALLENGE_DOUBLE_COEFFICIENTS ==
+    RING_DEGREE,
+  "The challenge weights generated from para1.py do not sum to the ring degree");
 
 size_t checked_size(uint64_t value, const char* field)
 {
@@ -217,7 +226,7 @@ uint64_t centered_magnitude(int64_t value)
 Zq zq_from_centered(int64_t value)
 {
   const uint64_t magnitude = centered_magnitude(value);
-  if (magnitude > BABYKOALA_Q_HALF) {
+  if (magnitude > BACKEND_Q_HALF) {
     throw std::runtime_error("non-canonical centered coefficient");
   }
   if (value >= 0) { return Zq::from_u64(magnitude); }
@@ -230,13 +239,13 @@ Rq read_polynomial(BinaryReader& reader, const char* field, long double* norm_sq
   for (size_t coefficient = 0; coefficient < Rq::d; ++coefficient) {
     const int64_t value = reader.read_i64(field);
     const uint64_t magnitude = centered_magnitude(value);
-    if (magnitude > BABYKOALA_Q_HALF) {
+    if (magnitude > BACKEND_Q_HALF) {
       std::ostringstream error;
       error << field << " coefficient " << coefficient << " is outside the canonical centered interval";
       throw std::runtime_error(error.str());
     }
     if (norm_squared != nullptr) {
-      if (magnitude >= BABYKOALA_SQRT_Q_FLOOR) {
+      if (magnitude >= BACKEND_SQRT_Q_FLOOR) {
         std::ostringstream error;
         error << field << " coefficient " << coefficient << " violates the ICICLE norm-kernel input range";
         throw std::runtime_error(error.str());
@@ -285,6 +294,41 @@ struct RelationBundle {
   long double witness_norm = 0.0L;
 };
 
+bool matches_generated_paper_schedule(const RelationBundle& bundle)
+{
+  const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
+  if (schedule.empty()) { return false; }
+  const auto& first = schedule.front();
+  const double expected_beta = std::sqrt(static_cast<double>(BACKEND_Q));
+  const double beta_tolerance =
+    8.0 * std::numeric_limits<double>::epsilon() * expected_beta;
+  if (!std::isfinite(bundle.beta) || bundle.recursions != schedule.size() || bundle.n != first.n ||
+      bundle.r != first.r ||
+      bundle.kappa != first.kappa || bundle.kappa1 != first.kappa1 || bundle.kappa2 != first.kappa2 ||
+      std::abs(bundle.beta - expected_beta) > beta_tolerance) {
+    return false;
+  }
+
+  const LabradorDecompositionPlan decomposition =
+    derive_paper_schedule_decomposition(1, bundle.beta);
+  return bundle.base1 == decomposition.base1 && bundle.base2 == decomposition.base2 &&
+         bundle.base3 == decomposition.base3;
+}
+
+void validate_commitment_rank_profile(const RelationBundle& bundle)
+{
+  if (bundle.kappa == 0 || bundle.kappa1 == 0 || bundle.kappa2 == 0) {
+    throw std::runtime_error("all Ajtai commitment ranks must be positive");
+  }
+  if (matches_generated_paper_schedule(bundle)) { return; }
+
+  const size_t minimum_rank =
+    std::max(secure_msis_rank(), icicle::labrador::backend_config::BASE_MSIS_RANK);
+  if (bundle.kappa < minimum_rank || bundle.kappa1 < minimum_rank || bundle.kappa2 < minimum_rank) {
+    throw std::runtime_error("Ajtai commitment rank is below the backend security heuristic");
+  }
+}
+
 std::array<std::byte, SHA3_256_BYTES>
 sha3_256(const std::byte* bytes, size_t size)
 {
@@ -311,8 +355,10 @@ void check_minimum_section_bytes(
   }
 }
 
-void validate_runtime_matrix_sizes(const RelationBundle& bundle)
+void validate_runtime_matrix_sizes(const RelationBundle& bundle, std::ostream* audit_output = nullptr)
 {
+  const bool paper_schedule = matches_generated_paper_schedule(bundle);
+  const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
   size_t n = bundle.n;
   size_t r = bundle.r;
   double beta = bundle.beta;
@@ -323,10 +369,14 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle)
   size_t l2 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base2);
   size_t l3 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base3);
   if (bundle.recursions > 1) {
-    const LabradorDecompositionPlan decomposition =
-      derive_decomposition_plan(n, r, beta);
+    const LabradorDecompositionPlan decomposition = paper_schedule
+      ? derive_paper_schedule_decomposition(1, beta)
+      : derive_decomposition_plan(n, r, beta);
     if (base1 != decomposition.base1 || base2 != decomposition.base2 || base3 != decomposition.base3) {
-      throw std::runtime_error("recursive bundle bases do not match the Section 5.4 level plan");
+      throw std::runtime_error(
+        paper_schedule
+          ? "recursive bundle bases do not match the generated paper-schedule level plan"
+          : "recursive bundle bases do not match the Section 5.4 level plan");
     }
     l1 = decomposition.digits1;
     l2 = decomposition.digits2;
@@ -334,21 +384,48 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle)
   }
 
   for (size_t level = 0; level < bundle.recursions; ++level) {
+    size_t kappa = bundle.kappa;
+    size_t kappa1 = bundle.kappa1;
+    size_t kappa2 = bundle.kappa2;
+    bool section_5_6_final = false;
+    if (paper_schedule) {
+      const auto& row = schedule[level];
+      if (n != row.n || r != row.r) {
+        throw std::runtime_error("derived level dimensions do not match the generated paper schedule");
+      }
+      const LabradorDecompositionPlan expected_decomposition =
+        derive_paper_schedule_decomposition(level + 1, beta);
+      if (base1 != expected_decomposition.base1 || base2 != expected_decomposition.base2 ||
+          base3 != expected_decomposition.base3 || l1 != expected_decomposition.digits1 ||
+          l2 != expected_decomposition.digits2 || l3 != expected_decomposition.digits3) {
+        throw std::runtime_error("derived decomposition does not match the generated paper schedule");
+      }
+      kappa = row.kappa;
+      kappa1 = row.kappa1;
+      kappa2 = row.kappa2;
+      section_5_6_final =
+        level + 1 == bundle.recursions && level != 0 && schedule[level - 1].section_5_6_tail;
+    }
     if (n == 0 || r == 0 || n > std::numeric_limits<uint32_t>::max() ||
         r > std::numeric_limits<uint32_t>::max() || !std::isfinite(beta) || beta <= 0.0) {
       throw std::runtime_error("derived recursive level has invalid dimensions or beta");
     }
+    if (kappa == 0 || kappa1 == 0 || kappa2 == 0) {
+      throw std::runtime_error("derived recursive level has a zero Ajtai commitment rank");
+    }
     const size_t r_plus_one = checked_add(r, 1, "r + 1");
     const size_t r_choose_two = checked_mul(r, r_plus_one, "r(r+1)") / 2;
-    const size_t t_len = checked_mul(checked_mul(l1, r, "l1*r"), bundle.kappa, "t length");
+    const size_t t_len = checked_mul(checked_mul(l1, r, "l1*r"), kappa, "t length");
     const size_t g_len = checked_mul(l2, r_choose_two, "g length");
     const size_t h_len = checked_mul(l3, r_choose_two, "h length");
 
+    // A Section 5.6 final instance has an A commitment only.  Its B/C/D
+    // matrices are deliberately empty in LabradorParam.
     const std::array<std::pair<size_t, const char*>, 4> matrix_sizes{{
-      {checked_mul(n, bundle.kappa, "Ajtai A"), "Ajtai A"},
-      {checked_mul(t_len, bundle.kappa1, "Ajtai B"), "Ajtai B"},
-      {checked_mul(g_len, bundle.kappa1, "Ajtai C"), "Ajtai C"},
-      {checked_mul(h_len, bundle.kappa2, "Ajtai D"), "Ajtai D"},
+      {checked_mul(n, kappa, "Ajtai A"), "Ajtai A"},
+      {section_5_6_final ? 0 : checked_mul(t_len, kappa1, "Ajtai B"), "Ajtai B"},
+      {section_5_6_final ? 0 : checked_mul(g_len, kappa1, "Ajtai C"), "Ajtai C"},
+      {section_5_6_final ? 0 : checked_mul(h_len, kappa2, "Ajtai D"), "Ajtai D"},
     }};
     size_t aggregate_matrix_size = 0;
     for (const auto& [size, name] : matrix_sizes) {
@@ -367,17 +444,28 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle)
     }
 
     const size_t witness_count = checked_mul(r, n, "r*n");
-    const size_t jl_working_set = checked_mul(bundle.jl_out, witness_count, "JL_out*r*n");
+    // Q is generated in bounded chunks.  At peak, the aggregation helper
+    // retains one output accumulator row alongside the current Q chunk.
+    const size_t jl_chunk_rows =
+      jl_aggregation_chunk_rows(witness_count, bundle.jl_out);
+    const size_t jl_working_set = checked_mul(
+      checked_add(jl_chunk_rows, 1, "JL chunk rows + accumulator"), witness_count,
+      "streamed JL row/accumulator working set");
     if (jl_working_set > MAX_RUNTIME_POLYNOMIALS) {
       std::ostringstream error;
-      error << "level " << level << " JL_out*r*n exceeds the runner safety limit";
+      error << "level " << level
+            << " streamed JL row/accumulator working set exceeds the runner safety limit";
       throw std::runtime_error(error.str());
     }
     const long double response_bound =
       static_cast<long double>(OP_NORM_BOUND) * beta * std::sqrt(static_cast<long double>(r));
     const long double projection_bound = std::sqrt(static_cast<long double>(bundle.jl_out) / 2.0L) * beta;
     const long double modular_jl_limit =
-      std::sqrt(30.0L / 128.0L) * static_cast<long double>(BABYKOALA_Q) / 125.0L;
+      std::sqrt(
+        static_cast<long double>(icicle::labrador::backend_config::EXTRACTION_SLACK_DENOMINATOR) /
+        static_cast<long double>(icicle::labrador::backend_config::SECURITY_BITS)) *
+      static_cast<long double>(BACKEND_Q) /
+      static_cast<long double>(icicle::labrador::backend_config::MODULAR_JL_DENOMINATOR);
     if (!std::isfinite(response_bound) || !std::isfinite(projection_bound) ||
         response_bound >= std::ldexp(1.0L, 64) || projection_bound < 1.0L ||
         projection_bound >= std::ldexp(1.0L, 64)) {
@@ -389,18 +477,38 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle)
       throw std::runtime_error(error.str());
     }
 
+    if (audit_output != nullptr) {
+      *audit_output << "level " << level + 1 << ": n=" << n << ", r=" << r
+                    << ", ranks=" << kappa << '/' << kappa1 << '/' << kappa2
+                    << ", digits=" << l1 << '/' << l2 << '/' << l3
+                    << ", CRS=" << aggregate_matrix_size << " polynomials"
+                    << ", JL_chunk_rows=" << jl_chunk_rows
+                    << ", JL_peak=" << jl_working_set << " polynomials";
+      if (section_5_6_final) { *audit_output << ", Section-5.6-final(A-only)"; }
+      *audit_output << '\n';
+    }
+
     if (level + 1 < bundle.recursions) {
-      const LabradorTransitionPlan transition = derive_transition_plan(
-        n,
-        r,
-        bundle.kappa,
-        base1,
-        base2,
-        base3,
-        l1,
-        l2,
-        l3,
-        beta);
+      if (paper_schedule) {
+        const bool final_transition = level + 2 == bundle.recursions;
+        if (schedule[level].section_5_6_tail != final_transition) {
+          throw std::runtime_error(
+            "generated paper schedule marks the wrong transition as the Section 5.6 tail");
+        }
+      }
+      const LabradorTransitionPlan transition = paper_schedule
+        ? derive_paper_schedule_transition(level + 1, beta)
+        : derive_transition_plan(
+            n,
+            r,
+            bundle.kappa,
+            base1,
+            base2,
+            base3,
+            l1,
+            l2,
+            l3,
+            beta);
       if (transition.mu > MAX_SPLIT_PARTS || transition.nu > MAX_SPLIT_PARTS) {
         throw std::runtime_error("derived recursive split exceeds the runner safety limit");
       }
@@ -423,6 +531,31 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle)
   }
 }
 
+RelationBundle make_paper_schedule_audit_bundle()
+{
+  const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
+  if (schedule.empty()) { throw std::runtime_error("generated paper schedule is empty"); }
+
+  const auto& first = schedule.front();
+  RelationBundle bundle;
+  bundle.n = first.n;
+  bundle.r = first.r;
+  bundle.beta = std::sqrt(static_cast<double>(BACKEND_Q));
+  bundle.kappa = first.kappa;
+  bundle.kappa1 = first.kappa1;
+  bundle.kappa2 = first.kappa2;
+  const LabradorDecompositionPlan decomposition =
+    derive_paper_schedule_decomposition(1, bundle.beta);
+  bundle.base1 = decomposition.base1;
+  bundle.base2 = decomposition.base2;
+  bundle.base3 = decomposition.base3;
+  bundle.jl_out = icicle::labrador::backend_config::JL_ROWS;
+  bundle.aggregation_rounds = icicle::labrador::backend_config::AGGREGATION_ROUNDS;
+  bundle.recursions = schedule.size();
+  validate_commitment_rank_profile(bundle);
+  return bundle;
+}
+
 RelationBundle parse_bundle(const std::vector<std::byte>& bytes)
 {
   BinaryReader reader(bytes);
@@ -438,8 +571,8 @@ RelationBundle parse_bundle(const std::vector<std::byte>& bytes)
   const uint32_t degree = reader.read_u32("ring degree");
   if (degree != RING_DEGREE) { throw std::runtime_error("relation bundle degree is not 64"); }
   const uint64_t modulus = reader.read_u64("ring modulus");
-  if (modulus != BABYKOALA_Q) {
-    throw std::runtime_error("relation modulus does not match the compiled BabyKoala backend");
+  if (modulus != BACKEND_Q) {
+    throw std::runtime_error("relation modulus does not match the compiled LaBRADOR backend");
   }
 
   RelationBundle bundle;
@@ -472,10 +605,6 @@ RelationBundle parse_bundle(const std::vector<std::byte>& bytes)
   if (bundle.kappa == 0 || bundle.kappa1 == 0 || bundle.kappa2 == 0) {
     throw std::runtime_error("all Ajtai commitment ranks must be positive");
   }
-  const size_t minimum_rank = secure_msis_rank();
-  if (bundle.kappa < minimum_rank || bundle.kappa1 < minimum_rank || bundle.kappa2 < minimum_rank) {
-    throw std::runtime_error("Ajtai commitment rank is below the backend security heuristic");
-  }
   bundle.base1 = reader.read_u32("base1");
   bundle.base2 = reader.read_u32("base2");
   bundle.base3 = reader.read_u32("base3");
@@ -485,18 +614,24 @@ RelationBundle parse_bundle(const std::vector<std::byte>& bytes)
   bundle.jl_out = checked_size(reader.read_u64("JL_out"), "JL_out");
   bundle.aggregation_rounds = checked_size(reader.read_u64("aggregation rounds"), "aggregation rounds");
   bundle.recursions = checked_size(reader.read_u64("recursions"), "recursions");
-  if (bundle.jl_out != 256) {
-    throw std::runtime_error("the current runner security profile requires JL_out=256");
+  if (bundle.jl_out != icicle::labrador::backend_config::JL_ROWS) {
+    throw std::runtime_error("JL_out does not match the backend parameters generated from para1.py");
   }
-  if (bundle.aggregation_rounds != 3) {
-    throw std::runtime_error("the BabyKoala security profile requires exactly 3 aggregation rounds");
+  if (bundle.aggregation_rounds != icicle::labrador::backend_config::AGGREGATION_ROUNDS) {
+    throw std::runtime_error("aggregation rounds do not match the backend parameters generated from para1.py");
   }
-  if (bundle.recursions == 0 || bundle.recursions > 8) {
-    throw std::runtime_error("recursions must be between 1 and 8 executions");
+  if (bundle.recursions == 0 || bundle.recursions > icicle::labrador::backend_config::MAX_RECURSIONS) {
+    throw std::runtime_error("recursions exceed the limit generated from para1.py");
   }
+  // The generated seven-row table carries level-specific ranks from its own
+  // paper-parameter audit.  Every other input remains subject to the generic
+  // conservative rank floor.  Do this only after recursions is parsed so a
+  // truncated or partial first-row match cannot obtain the exception.
+  validate_commitment_rank_profile(bundle);
 
   bundle.mode = ascii_string(reader.read_lp_bytes(MAX_MODE_BYTES, "mode"), "mode");
-  if (bundle.mode != "synthetic-principal-v1" && bundle.mode != "json-principal-v1") {
+  if (bundle.mode != "synthetic-principal-v1" && bundle.mode != "json-principal-v1" &&
+      bundle.mode != "lnplabrador-boundary-profile-v1") {
     throw std::runtime_error("unsupported relation mode");
   }
   bundle.source_fingerprint =
@@ -640,12 +775,22 @@ bool run_relation(RelationBundle bundle)
   size_t digits1 = 0;
   size_t digits2 = 0;
   size_t digits3 = 0;
+  uint32_t base1 = bundle.base1;
+  uint32_t base2 = bundle.base2;
+  uint32_t base3 = bundle.base3;
+  size_t paper_schedule_level = 0;
   if (bundle.recursions > 1) {
-    const LabradorDecompositionPlan decomposition =
-      derive_decomposition_plan(bundle.n, bundle.r, bundle.beta);
+    const bool paper_schedule_matches = matches_generated_paper_schedule(bundle);
+    paper_schedule_level = paper_schedule_matches ? 1 : 0;
+    const LabradorDecompositionPlan decomposition = paper_schedule_matches
+      ? derive_paper_schedule_decomposition(1, bundle.beta)
+      : derive_decomposition_plan(bundle.n, bundle.r, bundle.beta);
     digits1 = decomposition.digits1;
     digits2 = decomposition.digits2;
     digits3 = decomposition.digits3;
+    base1 = decomposition.base1;
+    base2 = decomposition.base2;
+    base3 = decomposition.base3;
   }
   LabradorParam parameters{
     bundle.r,
@@ -654,13 +799,16 @@ bool run_relation(RelationBundle bundle)
     bundle.kappa,
     bundle.kappa1,
     bundle.kappa2,
-    bundle.base1,
-    bundle.base2,
-    bundle.base3,
+    base1,
+    base2,
+    base3,
     bundle.beta,
     digits1,
     digits2,
     digits3,
+    false,
+    0,
+    paper_schedule_level,
   };
   parameters.JL_out = bundle.jl_out;
   parameters.num_aggregation_rounds = bundle.aggregation_rounds;
@@ -695,9 +843,10 @@ bool run_relation(RelationBundle bundle)
     throw std::runtime_error("loaded witness does not satisfy the loaded LaBRADOR relation");
   }
 
-  // The public digest covers the caller's oracle context and every public
-  // coefficient.  Appending it compensates for create_oracle_seed(), which
-  // currently serializes only constraint counts rather than their contents.
+  // create_oracle_seed() now binds every public constraint coefficient using
+  // canonical serialization.  Keep the frontend's independently computed
+  // digest in the caller context as defense in depth and to bind the exact
+  // LNPLAB01 artifact bytes accepted by this runner.
   bundle.oracle_seed.insert(bundle.oracle_seed.end(), bundle.public_digest.begin(), bundle.public_digest.end());
 
   std::cout << "Relation accepted"
@@ -705,6 +854,14 @@ bool run_relation(RelationBundle bundle)
             << ", equality=" << instance.equality_constraints.size()
             << ", const_zero=" << instance.const_zero_constraints.size() << ", recursions=" << bundle.recursions
             << '\n';
+  std::cout << "Recursion planner: "
+            << (paper_schedule_level == 0 ? "adaptive Section 5.4" : "generated seven-level paper schedule")
+            << '\n';
+  if (paper_schedule_level != 0) {
+    std::cout
+      << "WARNING: paper-schedule ranks are planning inputs, not estimator-certified; "
+         "the Python report currently marks the parameter set diagnostic-only.\n";
+  }
   std::cout << "Source fingerprint: " << bundle.source_fingerprint << '\n';
   std::cout << "Public SHA3-256: " << digest_hex(bundle.public_digest) << '\n';
   std::cout << "Witness L2 norm: " << static_cast<double>(bundle.witness_norm) << " < beta " << bundle.beta << '\n';
@@ -728,14 +885,26 @@ bool run_relation(RelationBundle bundle)
             << " B (" << std::fixed << std::setprecision(3)
             << static_cast<double>(total_proof_bytes) / 1024.0 << " KiB)\n";
 
-  std::vector<BaseProverMessages> prover_messages;
-  prover_messages.reserve(transcripts.size());
-  for (const auto& transcript : transcripts) { prover_messages.push_back(transcript.prover_msg); }
+  LabradorProofCodecStats codec_stats;
+  const std::vector<std::byte> encoded_proof =
+    encode_labrador_proof(transcripts, final_proof, &codec_stats);
+  LabradorDecodedProof decoded_proof = decode_labrador_proof(encoded_proof);
+  std::cout << "Recursive proof (canonical bit-packed wire encoding): header="
+            << codec_stats.header_bytes << " B, prefixes=" << codec_stats.prefix_bytes
+            << " B, final_response=" << codec_stats.final_response_bytes
+            << " B, total=" << codec_stats.total_bytes << " B (" << std::fixed
+            << std::setprecision(3) << static_cast<double>(codec_stats.total_bytes) / 1024.0
+            << " KiB)\n";
 
   LabradorVerifier verifier{
-    instance, prover_messages, final_proof, bundle.oracle_seed.data(), bundle.oracle_seed.size(), bundle.recursions};
+    instance,
+    decoded_proof.prover_messages,
+    decoded_proof.final_proof,
+    bundle.oracle_seed.data(),
+    bundle.oracle_seed.size(),
+    bundle.recursions};
   const bool verified = verifier.verify();
-  std::cout << "Verification: " << (verified ? "PASSED" : "FAILED") << '\n';
+  std::cout << "Verification after encode/decode: " << (verified ? "PASSED" : "FAILED") << '\n';
   return verified;
 }
 
@@ -743,13 +912,42 @@ bool run_relation(RelationBundle bundle)
 
 int main(int argc, char* argv[])
 {
-  if (argc != 3) {
-    std::cerr << "Usage: " << argv[0] << " DEVICE relation.lab\n"
-              << "Example: " << argv[0] << " CPU relation.lab\n";
-    return 2;
-  }
-
   try {
+    if (argc == 2 && std::string(argv[1]) == "--audit-paper-schedule") {
+      const RelationBundle audit_bundle = make_paper_schedule_audit_bundle();
+      auto require_generic_rank_rejection = [](RelationBundle probe, const char* changed_field) {
+        try {
+          validate_commitment_rank_profile(probe);
+        } catch (const std::runtime_error&) {
+          return;
+        }
+        throw std::runtime_error(
+          std::string("paper-schedule rank exception was not bound to ") + changed_field);
+      };
+      RelationBundle rank_probe = audit_bundle;
+      ++rank_probe.kappa;
+      require_generic_rank_rejection(std::move(rank_probe), "the exact ranks");
+      RelationBundle beta_probe = audit_bundle;
+      beta_probe.beta *= 1.0 + 1e-12;
+      require_generic_rank_rejection(std::move(beta_probe), "beta=sqrt(q)");
+      RelationBundle base_probe = audit_bundle;
+      ++base_probe.base1;
+      require_generic_rank_rejection(std::move(base_probe), "the level-one decomposition bases");
+      std::cout << "Generated paper-schedule dry-run (no CRS, JL matrix, or witness allocation):\n";
+      validate_runtime_matrix_sizes(audit_bundle, &std::cout);
+      std::cout << "Paper-schedule resource audit PASSED (limit=" << MAX_RUNTIME_POLYNOMIALS
+                << " polynomials)\n";
+      std::cout
+        << "Security status: resource dry-run only; displayed ranks are not "
+           "Module-SIS-estimator certified.\n";
+      return 0;
+    }
+    if (argc != 3) {
+      std::cerr << "Usage: " << argv[0] << " DEVICE relation.lab\n"
+                << "       " << argv[0] << " --audit-paper-schedule\n"
+                << "Example: " << argv[0] << " CPU relation.lab\n";
+      return 2;
+    }
     // The repository helper interprets argv[1] as the device name.
     try_load_and_set_backend_device(argc, argv);
     RelationBundle bundle = parse_bundle(read_file(argv[2]));

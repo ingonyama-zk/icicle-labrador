@@ -42,6 +42,13 @@ endfunction()
 function(setup_ring_target RING RING_INDEX FEATURES_STRING)
   add_library(icicle_ring SHARED)
 
+  # BabyKoala has a matching BabyBear x KoalaBear representation.  A prime
+  # ring such as labradorq40 has no non-trivial RNS factorization, so its
+  # frontend deliberately exposes only the direct Zq representation.
+  if(RING STREQUAL "babykoala")
+    target_compile_definitions(icicle_ring PUBLIC RING_HAS_RNS=1)
+  endif()
+
   # Split FEATURES_STRING into a list using "," as the separator
   string(REPLACE "," ";" FEATURES_LIST ${FEATURES_STRING})
 
@@ -69,4 +76,3 @@ function(setup_ring_target RING RING_INDEX FEATURES_STRING)
     LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/")
 endfunction()
-

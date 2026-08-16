@@ -103,6 +103,7 @@ namespace icicle {
 #endif // EXT_FIELD
 
 #ifdef RING
+#ifdef RING_HAS_RNS
   ICICLE_DISPATCHER_INST(ringRnsMatrixTransposeDispatcher, ring_rns_matrix_transpose, ringRnsMatrixOpImpl);
 
   extern "C" eIcicleError CONCAT_EXPAND(ICICLE_FFI_PREFIX, rns_matrix_transpose)(
@@ -117,6 +118,7 @@ namespace icicle {
   {
     return CONCAT_EXPAND(ICICLE_FFI_PREFIX, rns_matrix_transpose)(mat_in, nof_rows, nof_cols, &config, mat_out);
   }
+#endif // RING_HAS_RNS
 
   // Poly ring matrix transpose
   ICICLE_DISPATCHER_INST(ringPolyMatrixTransposeDispatcher, poly_ring_matrix_transpose, ringPolyRingMatrixOpImpl);

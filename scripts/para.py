@@ -149,7 +149,7 @@ class RecursionParameters:
     """
 
     formula_mode: str = "paper"
-    root_hermite_delta: float = 1.0045
+    root_hermite_delta: float = 1.00444
     max_split_parts: int = 256
     split_shape_constant: float = 0.25
     minimum_t1: int = 2

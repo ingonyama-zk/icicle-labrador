@@ -1,0 +1,412 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\R}{\mathcal R}
+\newcommand{\Rpi}{R_{q_\pi}}
+\newcommand{\Zpi}{\mathbb Z_{q_\pi}}
+\newcommand{\Com}{\mathsf{Com}}
+\newcommand{\CLaB}{\mathsf C_{\mathrm{LaB}}}
+\newcommand{\LaB}{\mathsf{LaBRADOR}}
+\newcommand{\LNP}{\mathsf{LNP}}
+\newcommand{\FS}{\mathsf{FS}}
+\newcommand{\ct}{\mathsf{ct}}
+\newcommand{\Rec}{\mathsf{Rec}}
+\newcommand{\Open}{\mathsf{Open}}
+\newcommand{\bits}{\mathsf{bits}}
+\newcommand{\concat}{\mathbin\|}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\transpose}{\mathsf T}
+
+\title{LNPLab Relation Passed Directly to LaBRADOR\\for the NIBS NIZK}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\paragraph{Scope.}
+This file contains only the composition boundary between the custom
+$\LNP^{\mathrm{com}}$ proof and LaBRADOR.  The original NIBS application
+relation is \emph{not} repeated here.  This is the relation that must be
+compiled to LaBRADOR's R1CS/dot-product representation.  LaBRADOR does not
+prove the original NIBS relation directly; it proves knowledge of the hidden
+final $\LNP^{\mathrm{com}}$ response and the openings of the compressed LNP
+flows.
+
+% -----------------------------------------------------------------------------
+\section{NIZK / proof parameters used at the LNPLab boundary}
+% -----------------------------------------------------------------------------
+
+We work over
+\[
+  \Rpi=\mathbb Z_{q_\pi}[X]/(X^{64}+1),
+  \qquad
+  q_\pi=2^{40}-195=1{,}099{,}511{,}627{,}581.
+\]
+The parameters relevant to the LNPLab boundary are collected below.
+
+\begin{center}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.40\textwidth}
+                >{\centering\arraybackslash}p{0.20\textwidth}
+                >{\raggedright\arraybackslash}p{0.27\textwidth}}
+\toprule
+Parameter & Symbol & Value / role \\
+\midrule
+Security level & $\lambda$ & $128$ bits \\
+Ring degree & $d$ & $64$ \\
+Proof modulus & $q_\pi$ & $2^{40}-195$ \\
+Coefficient bit length & $L_q$ & $\lceil\log_2 q_\pi\rceil=40$ \\
+Constant-coefficient repetitions & $\tau$ & $\lceil128/40\rceil=4$ \\
+Compressing Ajtai rank & $\kappa_{\mathrm{MSIS}}$ & $2$ \\
+Projection constants & $(C_1,C_2)$ & $(337,13/2)$ \\
+Projection rejection parameter & $\gamma$ & $2.5$ \\
+Final LNP rejection parameters & $(\gamma_1,\gamma_2)$ & $(17,1.2)$ \\
+Projected-core bound & $B_R$ & $81{,}385$ \\
+Verifier projection threshold & $\sqrt{C_2}\,B_R$ & approximately $207{,}492$ \\
+Application short-vector bound & $B_z^{\mathrm{app}}$ & $100$ \\
+Recipient-secret bound & $B_s$ & $100$ \\
+Error bounds & $(B_r,B_M)$ & $(220,220)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Important notation.}
+The bound $B_z^{\mathrm{app}}=100$ is the application bound on the short
+pre-signature vector.  It must \emph{not} be confused with the norm bound on
+the final LNP response passed to LaBRADOR.  We denote the latter by
+$\beta_{\mathrm{resp}}$ throughout this file.
+
+% -----------------------------------------------------------------------------
+\section{Composition-friendly compressed LNP flows}
+% -----------------------------------------------------------------------------
+
+Let $\Pi_{\mathrm{prefix}}$ denote the public LNP transcript up to, but not
+including, the final LNP response.  It contains the compact/small transcript
+values (for example $V_A$, the projection response, the commitments to the
+constant-coefficient masks, and all Fiat--Shamir-derived challenges) and the
+three compressing commitments defined below.
+
+To avoid a collision with the internal Ajtai message block used by LNP, we use
+$m_{\mathrm{cmp},A}$, $m_{\mathrm{cmp},h}$, and $m_{\mathrm{cmp},w}$ for the
+three large transcript messages that are hidden behind $\CLaB$.
+
+For the present NIBS transcript, use
+\begin{align}
+ m_{\mathrm{cmp},A}:={}&(
+ t_A,t_{s_R},t_{e_R},t_z,t_S,t_{e_M},t_\kappa,
+ t_{\beta_s},t_{\beta_z},t_{\beta_r},t_{\beta_M},t_{Y_R}),
+ \label{eq:mcmpA}\\
+ m_{\mathrm{cmp},h}:={}&(h_1,h_2,h_3,h_4),
+ \label{eq:mcmph}\\
+ m_{\mathrm{cmp},w}:={}&(w_A,w_u,t_Q,v_Q).
+ \label{eq:mcmpw}
+\end{align}
+Here $t_z$ commits to the complete application short vector
+$z=(z_L,z_R)\in R_{q_\pi}^{72}$; equivalently it may be serialized as
+$(t_{z_L},t_{z_R})$ provided that the CRS and the relation use the same fixed
+layout.
+
+The three public compressing commitments are
+\begin{equation}
+ \boxed{
+ x_A=\CLaB.\Com(m_{\mathrm{cmp},A}),\qquad
+ x_h=\CLaB.\Com(m_{\mathrm{cmp},h}),\qquad
+ x_w=\CLaB.\Com(m_{\mathrm{cmp},w}).
+ }
+ \label{eq:three-commitments}
+\end{equation}
+
+With $\kappa_{\mathrm{MSIS}}=2$, each $\CLaB$ output consists of two ring
+elements and therefore has size
+\[
+  2\cdot d\cdot L_q
+  =2\cdot64\cdot40
+  =5120\text{ bits}=640\text{ bytes}.
+\]
+
+
+\subsection{Compiler dimensions of the three compressed flows}
+
+For the present transcript, the first compressed flow has the following ring-coordinate
+layout:
+\begin{center}
+\begin{tabular}{lcr}
+\toprule
+Block & Ring coordinates & Comment \\
+\midrule
+$t_A$ & $2$ & $\kappa_{\mathrm{MSIS}}=2$ \\
+$t_{s_R}$ & $21$ & recipient secret \\
+$t_{e_R}$ & $21$ & recipient error \\
+$t_z$ & $72$ & complete short vector $z=(z_L,z_R)$ \\
+$t_S$ & $64\cdot 21=1344$ & PRF intermediate states \\
+$t_{e_M}$ & $21$ & PRF rounding error \\
+$t_\kappa$ & $1458$ & quotient/carry block for the lifted full-ring equations \\
+$t_{\beta_s},t_{\beta_z},t_{\beta_r},t_{\beta_M}$ & $4$ & four exact-norm slacks \\
+$t_{Y_R}$ & $4$ & packed $256$-coordinate projection mask \\
+\midrule
+$\dim_R(m_{\mathrm{cmp},A})$ & $2947$ & total \\
+\bottomrule
+\end{tabular}
+\end{center}
+Moreover,
+\[
+  \dim_R(m_{\mathrm{cmp},h})=4,
+  \qquad
+  \dim_R(m_{\mathrm{cmp},w})=2+2+1+1=6.
+\]
+Hence, before any additional optimization of the LaBRADOR circuit, the three
+$\CLaB$ opening subrelations contribute
+\begin{align*}
+ C_A&=40\cdot64\cdot2947+2\cdot64=7{,}544{,}448,\\
+ C_h&=40\cdot64\cdot4+2\cdot64=10{,}368,\\
+ C_w&=40\cdot64\cdot6+2\cdot64=15{,}488
+\end{align*}
+binary-R1CS rows.  These counts are useful only for selecting the LaBRADOR
+recursion parameters; they do not change the mathematical relation
+\eqref{eq:full-lnplab-relation}.
+
+% -----------------------------------------------------------------------------
+\section{The compressing commitment relation}
+% -----------------------------------------------------------------------------
+
+For a message $m\in\Rpi^n$, let $b=\bits(m)$ denote its coefficient-wise
+binary decomposition using exactly $L_q=40$ bits per coefficient.  Thus for
+each ring coordinate $j\in[n]$ and coefficient index $a\in\{0,\ldots,63\}$,
+\begin{equation}
+ m_j[a]
+ \equiv
+ \sum_{t=0}^{39} 2^t b_{j,a,t}
+ \pmod{q_\pi},
+ \qquad b_{j,a,t}\in\{0,1\}.
+ \label{eq:bit-reconstruction}
+\end{equation}
+Let $A_{\mathrm{cmp}}$ be the fixed compressing Ajtai matrix in the CRS.  The
+relation used for one $\CLaB$ opening is
+\begin{equation}
+\boxed{
+\begin{aligned}
+ \Open_{\CLaB}(x;m,b)=1
+ \quad\Longleftrightarrow\quad
+ &x=A_{\mathrm{cmp}}b,\\
+ &\Rec_{40}(b)=m,\\
+ &b_{j,a,t}(b_{j,a,t}-1)=0
+ \quad\forall j,a,t.
+\end{aligned}}
+\label{eq:clab-open}
+\end{equation}
+The reconstruction equations are linear; the last line supplies the binary
+R1CS constraints.
+
+% -----------------------------------------------------------------------------
+\section{Final hidden LNP response}
+% -----------------------------------------------------------------------------
+
+Let $c\in\mathcal C_{\mathrm{LNP}}$ be the final LNP challenge, recomputed by
+Fiat--Shamir from the complete public prefix.  The final response that would
+be sent by ordinary LNP is
+\begin{equation}
+  z_{A,1}=c\,m_{\mathrm{bin}}+y_{A,1},\qquad
+  z_{A,2}=c\,u_A+y_{A,2},\qquad
+  z_u=c\,u_{\mathrm{BD}}+y_u.
+  \label{eq:final-responses}
+\end{equation}
+In LNPLab this response is \emph{not} sent in the clear.  It becomes part of
+the LaBRADOR witness.
+
+For every BDLOP-appended message $x$ with
+\[
+  t_x=B_xu_{\mathrm{BD}}+x,
+\]
+the masked coordinate needed by the quadratic verifier is reconstructed
+linearly from the transcript as
+\begin{equation}
+  z_x:=c\,t_x-B_xz_u
+      =c\,x-B_xy_u.
+  \label{eq:masked-coordinate}
+\end{equation}
+Collecting the Ajtai coordinate $z_{A,1}$ and all coordinates from
+\eqref{eq:masked-coordinate} gives the LNP quadratic-response vector $z_Q$.
+Define
+\[
+  \bar z_Q:=(z_Q,\sigma(z_Q)).
+\]
+The coefficients $(E,e,e_0)$ of the single aggregated quadratic equation are
+fixed by $\Pi_{\mathrm{prefix}}$ after the constant-coefficient and equation
+aggregation challenges have been derived.
+
+% -----------------------------------------------------------------------------
+\section{Exact relation passed to LaBRADOR}
+% -----------------------------------------------------------------------------
+
+\subsection{Public statement}
+
+The LaBRADOR statement is
+\begin{equation}
+\boxed{
+ x_{\mathrm{LaB}}
+ :=
+ \bigl(
+   \Pi_{\mathrm{prefix}},
+   x_A,x_h,x_w,
+   E,e,e_0,
+   A_1,A_2,B_Q
+ \bigr).
+ }
+ \label{eq:lab-statement}
+\end{equation}
+All LNP challenges, including $c$, are deterministic Fiat--Shamir outputs from
+$\Pi_{\mathrm{prefix}}$ and are therefore public constants when this relation
+is compiled to LaBRADOR.
+
+\subsection{Private witness}
+
+The witness supplied to LaBRADOR is
+\begin{equation}
+\boxed{
+\begin{aligned}
+ w_{\mathrm{LaB}}:=(&
+ m_{\mathrm{cmp},A},b_A,
+ m_{\mathrm{cmp},h},b_h,
+ m_{\mathrm{cmp},w},b_w,\\
+ &z_{A,1},z_{A,2},z_u
+ ).
+\end{aligned}}
+\label{eq:lab-witness}
+\end{equation}
+The vectors $b_A,b_h,b_w$ are the binary openings used by
+$\Open_{\CLaB}$.
+
+\subsection{Verifier equations}
+
+The first final LNP verification equation is the Ajtai opening equation
+\begin{equation}
+\boxed{
+ f_1:=cV_A+w_A-A_1z_{A,1}-A_2z_{A,2}=0.
+ }
+ \label{eq:f1}
+\end{equation}
+The second is the BDLOP base-opening equation
+\begin{equation}
+\boxed{
+ f_2:=c\,t_A+w_u-A_2z_u=0.
+ }
+ \label{eq:f2}
+\end{equation}
+For the final quadratic check, first define the public/witness-linear value
+\begin{equation}
+  f:=c\,t_Q-B_Qz_u.
+  \label{eq:faux}
+\end{equation}
+Then impose
+\begin{equation}
+\boxed{
+ f_3:=
+ \bar z_Q^{\transpose}E\bar z_Q
+ +c\,e^{\transpose}\bar z_Q
+ +c^2e_0
+ -f
+ -v_Q
+ =0.
+ }
+ \label{eq:f3}
+\end{equation}
+Equivalently, the LNP verifier equation is
+\[
+ \bar z_Q^{\transpose}E\bar z_Q
+ +c\,e^{\transpose}\bar z_Q
+ +c^2e_0-f=v_Q.
+\]
+The term $v_Q$ must be retained: it is the constant masking term generated
+before the final challenge.
+
+Finally, impose the LNP response norm condition
+\begin{equation}
+\boxed{
+ \norm{z_{A,1}\concat z_{A,2}\concat z_u}_2
+ \le \beta_{\mathrm{resp}}.
+ }
+ \label{eq:response-norm}
+\end{equation}
+The value $\beta_{\mathrm{resp}}$ is selected from the final LNP Gaussian
+widths, response dimensions, challenge operator-norm bound, and the required
+tail probability.  It is a proof-system parameter and is distinct from
+$B_z^{\mathrm{app}}=100$.
+
+\subsection{Complete LNPLab boundary relation}
+
+The exact relation compiled to the first LaBRADOR execution is therefore
+\begin{equation}
+\boxed{
+\begin{aligned}
+\R_{\mathrm{LNP}}^{\mathrm{com}}
+:=\Bigl\{(x_{\mathrm{LaB}},w_{\mathrm{LaB}}):\;&
+ \Open_{\CLaB}(x_A;m_{\mathrm{cmp},A},b_A)=1,\\
+&\Open_{\CLaB}(x_h;m_{\mathrm{cmp},h},b_h)=1,\\
+&\Open_{\CLaB}(x_w;m_{\mathrm{cmp},w},b_w)=1,\\
+&f_1=0,\quad f_2=0,\quad f_3=0,\\
+&\norm{z_{A,1}\concat z_{A,2}\concat z_u}_2
+   \le \beta_{\mathrm{resp}}
+\Bigr\}.
+\end{aligned}}
+\label{eq:full-lnplab-relation}
+\end{equation}
+This is the relation that is passed to LaBRADOR.  The original NIBS equations
+have already been compiled into the LNP transcript and must not be appended a
+second time at this boundary.
+
+% -----------------------------------------------------------------------------
+\section{LaBRADOR / Fiat--Shamir interface}
+% -----------------------------------------------------------------------------
+
+The first LaBRADOR execution receives
+\[
+  \boxed{
+  \textsf{statement}=x_{\mathrm{LaB}},
+  \qquad
+  \textsf{witness}=w_{\mathrm{LaB}},
+  \qquad
+  \textsf{relation}=\R_{\mathrm{LNP}}^{\mathrm{com}}.
+  }
+\]
+The relation \eqref{eq:full-lnplab-relation} is converted to LaBRADOR's
+principal dot-product/R1CS representation.  The three $\CLaB$ opening
+relations contribute binary-decomposition/commitment constraints; $f_1$ and
+$f_2$ are linear ring equations; $f_3$ is one aggregated quadratic ring
+equation; and \eqref{eq:response-norm} is handled by LaBRADOR's native norm
+component rather than duplicated as a separate binary norm circuit.
+
+LaBRADOR is then recursively composed $t$ times.  The NIZK is not obtained by
+hashing the final response.  Instead, every verifier challenge in the entire
+composed protocol is replaced by a Fiat--Shamir hash of the transcript prefix:
+\begin{equation}
+\boxed{
+ \pi_{\mathrm{NIZK}}
+ =\FS\!\left[
+   \LaB^{(t)}\circ\LNP^{\mathrm{com}}
+ \right]
+ =\FS[\mathsf{LNPLab}].
+ }
+ \label{eq:fs-lnplab}
+\end{equation}
+The terminal LaBRADOR prover response remains an explicit field of the final
+proof; only verifier challenges are hash-derived.
+
+\paragraph{Implementation boundary.}
+A LaBRADOR implementation does not parse this TeX file directly.  The exact
+objects that must be exported by the LNP side are
+\[
+  (x_{\mathrm{LaB}},w_{\mathrm{LaB}})
+\]
+together with an R1CS/dot-product compiler implementing
+\eqref{eq:clab-open}, \eqref{eq:f1}, \eqref{eq:f2}, \eqref{eq:f3}, and
+\eqref{eq:response-norm}.  No other application relation is needed at the
+LNP--LaBRADOR boundary.
+
+\end{document}

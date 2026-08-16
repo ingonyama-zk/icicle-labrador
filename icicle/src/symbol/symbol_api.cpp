@@ -131,7 +131,7 @@ eIcicleError CONCAT_EXPAND(ICICLE_FFI_PREFIX, extension_sub_symbols)(
 }
 #endif // EXT_FIELD
 
-#ifdef RING
+#ifdef RING_HAS_RNS
 typedef Symbol<scalar_rns_t>* RnsSymbolHandle;
 
 extern "C" {
@@ -199,4 +199,4 @@ eIcicleError CONCAT_EXPAND(ICICLE_FFI_PREFIX, rns_sub_symbols)(
   return eIcicleError::SUCCESS;
 }
 }
-#endif // RING
+#endif // RING_HAS_RNS

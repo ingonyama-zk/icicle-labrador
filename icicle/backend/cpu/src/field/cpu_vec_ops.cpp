@@ -800,7 +800,7 @@ REGISTER_SCALAR_SUB_VEC_EXT_FIELD_BACKEND("CPU", cpu_scalar_sub<extension_t>);
 REGISTER_EXECUTE_PROGRAM_EXT_FIELD_BACKEND("CPU", cpu_execute_program<extension_t>);
 #endif // EXT_FIELD
 
-#ifdef RING
+#ifdef RING_HAS_RNS
 // Register APIs for rns type
 REGISTER_BIT_REVERSE_RING_RNS_BACKEND("CPU", cpu_bit_reverse<scalar_rns_t>);
 REGISTER_SLICE_RING_RNS_BACKEND("CPU", cpu_slice<scalar_rns_t>);
@@ -849,4 +849,4 @@ cpu_convert_rns(const Device& device, const SrcType* input, uint64_t size, const
 }
 REGISTER_CONVERT_TO_RNS_BACKEND("CPU", (cpu_convert_rns<scalar_t, scalar_rns_t, true /*into rns*/>));
 REGISTER_CONVERT_FROM_RNS_BACKEND("CPU", (cpu_convert_rns<scalar_rns_t, scalar_t, false /*from rns*/>));
-#endif // RING
+#endif // RING_HAS_RNS

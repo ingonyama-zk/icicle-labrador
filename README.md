@@ -2,9 +2,9 @@
 
 > **⚠️ WARNING**: This code has not been audited. Use at your own risk.
 
-This repository contains an end-to-end research demo of **LaBRADOR** — the first practical _lattice-based_ zk-SNARK (CRYPTO 2023) — built on top of **ICICLE v4**. The paper's optimized construction targets proofs around 50 kB without a trusted setup under the Module-SIS assumption. The local recursive runner below does not yet implement the optimized final round or a concrete Module-SIS estimator, so its native proof-size output is substantially larger and is not a production security claim.
+This repository contains an end-to-end research demo of **LaBRADOR** — the first practical _lattice-based_ zk-SNARK (CRYPTO 2023) — built on top of **ICICLE v4**. The paper's optimized construction targets proofs around 50 kB without a trusted setup under the Module-SIS assumption. The local runner implements the Section 5.6 final round, recursive folding, and a canonical bit-packed proof codec. Its displayed ranks are still a root-Hermite planning heuristic rather than a current concrete Module-SIS-estimator result, so this is not a production security claim.
 
-ICICLE ships highly-tuned GPU and CPU kernels for FFT/NTT, polynomial arithmetic and lattice primitives. Thanks to those kernels the prover can run unchanged on a laptop CPU _or_ a CUDA-capable GPU and enjoy order-of-magnitude speed-ups.
+The requested TeX profile uses `q = 2^40 - 195`, which is also the official C reference implementation's `LOGQ=40` option (the paper's concrete table uses `q` near `2^32`). Since this 40-bit field has no primitive 128-th root, the repository's exact backend performs degree-64 negacyclic multiplication in coefficient form with CPU Karatsuba. It deliberately does not route these products through an invalid direct-q NTT. GPU polynomial multiplication for this exact-q profile is not implemented; an optimized backend would instead use computational CRT/NTT primes and reduce the result back modulo `q`.
 
 For additional background see the original [paper](https://link.springer.com/chapter/10.1007/978-3-031-38554-4_17) and our detailed [blog post](https://hackmd.io/@Ingonyama/fast-labrador-prover).
 
@@ -14,19 +14,7 @@ To run the program on CPU use
 ./run.sh
 ```
 
-To run on GPU, run
-
-```
-./run.sh -d CUDA
-```
-
-This script will automatically download the ICICLE CUDA backend (v4.0.0) when running with the CUDA option, build the necessary components, and run the prover.
-
-You can also specify a custom backend installation directory with:
-
-```
-./run.sh -d CUDA -b /path/to/backend
-```
+`./run.sh -d CUDA` is not supported by the exact-q coefficient backend and will fail rather than silently changing rings.
 
 ## Recursive relation runner (research profile)
 
@@ -47,11 +35,11 @@ python3 scripts/labrador.py run /tmp/labrador-input.lab \
   --executions 2 --device CPU --build
 ```
 
-Here `2` means one recursive fold followed by the final execution. The runner reports `B` in **bytes** and `KiB` in 1024-byte units. It proves and verifies in memory; it does not currently serialize a proof file. A `.lab` or `--prepared-output` file contains the secret witness in plaintext, and a `--plan-output` file is only an audit schedule—neither is a proof and neither should be shared as one.
+Here `2` means one recursive fold followed by the optimized Section 5.6 final execution. The runner reports `B` in **bytes** and `KiB` in 1024-byte units, then encodes, decodes, and verifies the canonical proof in memory. A `.lab` or `--prepared-output` file contains the secret witness in plaintext, and a `--plan-output` file is only an audit schedule—neither is a proof and neither should be shared as one.
 
 The standalone `plan` digest covers the source statement. A plan written by `prepare`/`run` additionally covers the prepared statement digest, so those two audit hashes are intentionally different.
 
-The recursive path enforces fixed `t1/t2` decomposition lengths, the paper's `beta'` recurrence, combined `v=t||g||h` packing, and the consolidated target-witness norm. It remains a research profile because the BabyKoala ring/challenge assumptions and field-sampling distribution are not certified here, ranks are heuristic rather than estimator-derived, and the optimized final protocol from Section 5.6 is absent.
+The recursive path enforces fixed decomposition lengths, the paper's `beta'` recurrence, combined `v=t||g||h` packing, streamed JL aggregation, and the Section 5.6 unsplit final transition. The exact-q sampler uses rejection sampling and the folding challenge has 23 zero, 31 `+/-1`, and 10 `+/-2` coefficients with operator norm at most 15. It remains a research profile because the displayed Module-SIS ranks are heuristic rather than estimator-certified and a full numeric binary-R1CS input still requires the caller's `A`, `B`, `C`, and witness data.
 
 ### C11 relation frontend
 
@@ -72,7 +60,7 @@ cmake --build build/src --target lab_c lab_runner -j
 LD_LIBRARY_PATH=build/icicle ./build/src/lab_runner CPU input.lab
 ```
 
-`lab_c` is a C11 codec/generator; the cryptographic prover and verifier remain the C++ `lab_runner`. Its default parameter fingerprint is tied to the current `para.py`; after changing that file, pass the new 64-character value with `--fingerprint`. The C-generated `.lab` also contains the plaintext secret witness and is not a proof file.
+`lab_c` is a C11 codec/generator; the cryptographic prover and verifier remain the C++ `lab_runner`. Its backend constants are generated from `scripts/para1.py`; run `python3 scripts/lnplabrador.py sync-backend` after changing them. The C-generated `.lab` also contains the plaintext secret witness and is not a proof file.
 
 ---
 

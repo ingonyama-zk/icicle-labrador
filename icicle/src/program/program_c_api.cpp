@@ -100,7 +100,7 @@ eIcicleError CONCAT_EXPAND(ICICLE_FFI_PREFIX, extension_generate_returning_value
 }
 #endif // EXT_FIELD
 
-#ifdef RING
+#ifdef RING_HAS_RNS
 typedef Symbol<scalar_rns_t>* RnsSymbolHandle;
 typedef Program<scalar_rns_t>* RnsProgramHandle;
 typedef ReturningValueProgram<scalar_rns_t>* RnsReturningValueProgramHandle;
@@ -145,4 +145,4 @@ eIcicleError CONCAT_EXPAND(ICICLE_FFI_PREFIX, rns_generate_returning_value_progr
   return CONCAT_EXPAND(ICICLE_FFI_PREFIX, rns_generate_program)(parameters_ptr, nof_parameters, &program);
 }
 }
-#endif // RING
+#endif // RING_HAS_RNS

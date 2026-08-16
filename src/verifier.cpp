@@ -14,28 +14,91 @@ void LabradorBaseVerifier::validate_prover_message_shape() const
   }
 }
 
+void LabradorBaseVerifier::validate_section_5_6_message_shape(
+  const LabradorSection56Proof& final_proof) const
+{
+  const LabradorParam& param = lab_inst.param;
+  if (!param.section_5_6_final || param.final_primary_count == 0 ||
+      param.final_primary_count > param.r) {
+    throw std::invalid_argument("Section 5.6 proof requires a final sparse instance");
+  }
+  if (!trs.prover_msg.u1.empty() || !trs.prover_msg.u2.empty() ||
+      trs.prover_msg.p.size() != param.JL_out ||
+      trs.prover_msg.b_agg.size() != param.num_aggregation_rounds) {
+    throw std::invalid_argument("malformed Section 5.6 prover-message dimensions");
+  }
+  if (trs.prover_msg.JL_i >= (1U << 20)) {
+    throw std::invalid_argument("LaBRADOR JL retry counter exceeds the canonical limit");
+  }
+  if (final_proof.primary_count != param.final_primary_count ||
+      final_proof.z_hat.size() != param.n ||
+      final_proof.t.size() != param.r * param.kappa ||
+      final_proof.g_cross.size() != param.final_primary_count ||
+      final_proof.g_diagonal.size() != param.final_primary_count ||
+      final_proof.h_cross.size() != param.r - 1 ||
+      final_proof.h_diagonal.size() != param.r) {
+    throw std::invalid_argument("malformed Section 5.6 final-response dimensions");
+  }
+}
+
+void LabradorBaseVerifier::create_section_5_6_transcript_prefix(
+  const LabradorSection56Proof& final_proof)
+{
+  std::vector<std::byte> first_message = section_5_6_first_message(final_proof.t);
+  trs.seed1 = oracle.generate(first_message.data(), first_message.size());
+
+  const size_t JL_i = trs.prover_msg.JL_i;
+  const std::vector<Zq>& p = trs.prover_msg.p;
+  std::vector<std::byte> jl_buf = canonical_jl_transcript_message(
+    "LaBRADOR-Section-5.6-jl-v2", JL_i, p);
+  trs.seed2 = oracle.generate(jl_buf.data(), jl_buf.size());
+
+  const size_t L = lab_inst.const_zero_constraints.size();
+  const size_t JL_out = lab_inst.param.JL_out;
+  const size_t aggregation_rounds = lab_inst.param.num_aggregation_rounds;
+  trs.psi.resize(aggregation_rounds * L);
+  trs.omega.resize(aggregation_rounds * JL_out);
+  std::vector<std::byte> psi_seed(trs.seed2);
+  psi_seed.push_back(std::byte('1'));
+  if (!trs.psi.empty()) {
+    ICICLE_CHECK(random_sampling(
+      trs.psi.size(), false, psi_seed.data(), psi_seed.size(), {}, trs.psi.data()));
+  }
+  std::vector<std::byte> omega_seed(trs.seed2);
+  omega_seed.push_back(std::byte('2'));
+  ICICLE_CHECK(random_sampling(
+    trs.omega.size(), false, omega_seed.data(), omega_seed.size(), {}, trs.omega.data()));
+
+  const std::vector<Tq>& b_agg = trs.prover_msg.b_agg;
+  const std::vector<std::byte> aggregation_message =
+    canonical_polynomial_transcript_message(
+      "LaBRADOR-Section-5.6-aggregation-v2", b_agg.data(), b_agg.size());
+  trs.seed3 = oracle.generate(aggregation_message.data(), aggregation_message.size());
+
+  const size_t K = lab_inst.equality_constraints.size() + aggregation_rounds;
+  if (K == 0) { throw std::invalid_argument("Section 5.6 final instance has no constraints"); }
+  trs.alpha_hat.resize(K);
+  std::vector<std::byte> alpha_seed(trs.seed3);
+  alpha_seed.push_back(std::byte('1'));
+  ICICLE_CHECK(random_sampling(
+    K, false, alpha_seed.data(), alpha_seed.size(), {}, trs.alpha_hat.data()));
+}
+
 // Fills up trs correctly assuming trs.prover_msg are correctly filled
 void LabradorBaseVerifier::create_transcript()
 {
   const size_t d = Rq::d;
-  // 1. seed1 from u1
+  // 1. seed1 from canonical u1
   const auto& u1 = trs.prover_msg.u1;
-  const std::byte* u1_bytes = reinterpret_cast<const std::byte*>(u1.data());
-  size_t u1_len = u1.size() * sizeof(Tq);
-  trs.seed1 = oracle.generate(u1_bytes, u1_len);
+  const std::vector<std::byte> u1_message =
+    canonical_polynomial_transcript_message("LaBRADOR-base-u1-v2", u1.data(), u1.size());
+  trs.seed1 = oracle.generate(u1_message.data(), u1_message.size());
 
   // 2. seed2 from JL_i and p
   size_t JL_i = trs.prover_msg.JL_i;
   const std::vector<Zq>& p = trs.prover_msg.p;
-  std::vector<std::byte> jl_buf;
-  jl_buf.reserve(sizeof(uint64_t) + p.size() * sizeof(Zq));
-  const uint64_t jl_counter = static_cast<uint64_t>(JL_i);
-  for (size_t byte = 0; byte < sizeof(jl_counter); ++byte) {
-    jl_buf.push_back(std::byte((jl_counter >> (8 * byte)) & 0xffU));
-  }
-  jl_buf.insert(
-    jl_buf.end(), reinterpret_cast<const std::byte*>(p.data()),
-    reinterpret_cast<const std::byte*>(p.data()) + p.size() * sizeof(Zq));
+  const std::vector<std::byte> jl_buf =
+    canonical_jl_transcript_message("LaBRADOR-base-jl-v2", JL_i, p);
   trs.seed2 = oracle.generate(jl_buf.data(), jl_buf.size());
 
   // 3. psi and omega sampling
@@ -55,11 +118,12 @@ void LabradorBaseVerifier::create_transcript()
   omega_seed.push_back(std::byte('2'));
   ICICLE_CHECK(random_sampling(trs.omega.size(), false, omega_seed.data(), omega_seed.size(), {}, trs.omega.data()));
 
-  // 4. seed3 from msg3 (b_agg)
+  // 4. seed3 from canonical msg3 (b_agg)
   const auto& msg3 = trs.prover_msg.b_agg;
-  const std::byte* msg3_bytes = reinterpret_cast<const std::byte*>(msg3.data());
-  size_t msg3_len = msg3.size() * sizeof(Tq);
-  trs.seed3 = oracle.generate(msg3_bytes, msg3_len);
+  const std::vector<std::byte> msg3_message =
+    canonical_polynomial_transcript_message(
+      "LaBRADOR-base-aggregation-v2", msg3.data(), msg3.size());
+  trs.seed3 = oracle.generate(msg3_message.data(), msg3_message.size());
 
   // 5. alpha_hat sampling
   // After we aggregate the L const-zero constraints the instance will
@@ -73,11 +137,11 @@ void LabradorBaseVerifier::create_transcript()
   alpha_seed.push_back(std::byte('1'));
   ICICLE_CHECK(random_sampling(K, false, alpha_seed.data(), alpha_seed.size(), {}, trs.alpha_hat.data()));
 
-  // 6. seed4 from u2
+  // 6. seed4 from canonical u2
   const auto& u2 = trs.prover_msg.u2;
-  const std::byte* u2_bytes = reinterpret_cast<const std::byte*>(u2.data());
-  size_t u2_bytes_len = u2.size() * sizeof(Tq);
-  trs.seed4 = oracle.generate(u2_bytes, u2_bytes_len);
+  const std::vector<std::byte> u2_message =
+    canonical_polynomial_transcript_message("LaBRADOR-base-u2-v2", u2.data(), u2.size());
+  trs.seed4 = oracle.generate(u2_message.data(), u2_message.size());
 
   // 7. challenges_hat sampling
   size_t n = lab_inst.param.n;
@@ -154,7 +218,8 @@ bool LabradorBaseVerifier::_verify_base_proof(const LabradorBaseCaseProof& base_
     return false;
   }
 
-  const LabradorTransitionPlan transition = derive_transition_plan(lab_inst.param);
+  const LabradorTransitionPlan transition =
+    derive_protocol_transition_plan(lab_inst.param, false);
   std::vector<Rq> target_witness = fixed_length_decompose(z, transition.z_base, 2);
   target_witness.insert(target_witness.end(), t_tilde.begin(), t_tilde.end());
   target_witness.insert(target_witness.end(), g_tilde.begin(), g_tilde.end());
@@ -302,6 +367,154 @@ bool LabradorBaseVerifier::_verify_base_proof(const LabradorBaseCaseProof& base_
   return true;
 }
 
+bool LabradorBaseVerifier::_verify_section_5_6_proof(
+  const LabradorSection56Proof& final_proof)
+{
+  const size_t r = lab_inst.param.r;
+  const size_t n = lab_inst.param.n;
+  const size_t primary_count = lab_inst.param.final_primary_count;
+  const size_t d = Rq::d;
+  validate_section_5_6_message_shape(final_proof);
+
+  const std::vector<size_t> order = section_5_6_challenge_order(r, primary_count);
+  std::vector<Tq> challenges_hat(r, zero());
+  for (size_t round = 0; round < r; ++round) {
+    const size_t i = order[round];
+    const Rq* h_cross = round == 0 ? nullptr : &final_proof.h_cross[round - 1];
+    const bool first_primary = (i == 0);
+    const Rq* g0 = first_primary ? &final_proof.g0 : nullptr;
+    const Rq* g_cross = i < primary_count ? &final_proof.g_cross[i] : nullptr;
+    const Rq* g_diagonal = i < primary_count ? &final_proof.g_diagonal[i] : nullptr;
+    std::vector<std::byte> round_message = section_5_6_round_message(
+      round, h_cross, final_proof.h_diagonal[round], g0, g_cross, g_diagonal);
+    std::vector<std::byte> challenge_seed = oracle.generate(round_message.data(), round_message.size());
+    std::vector<Rq> challenge =
+      sample_low_norm_challenges(n, 1, challenge_seed.data(), challenge_seed.size());
+    ICICLE_CHECK(ntt(challenge.data(), 1, NTTDir::kForward, {}, &challenges_hat[i]));
+    trs.seed4 = std::move(challenge_seed);
+  }
+  trs.challenges_hat = challenges_hat;
+
+  std::vector<Rq> z(n);
+  ICICLE_CHECK(ntt(final_proof.z_hat.data(), n, NTTDir::kInverse, {}, z.data()));
+  bool z_small = false;
+  ICICLE_CHECK(check_norm_bound(
+    reinterpret_cast<const Zq*>(z.data()), z.size() * d, eNormType::L2,
+    lab_inst.param.op_norm_bound * lab_inst.param.beta * std::sqrt(r), {}, &z_small));
+  if (!z_small) {
+    std::cout << "Section 5.6 L2 norm check for z failed\n";
+    return false;
+  }
+
+  // A*z = sum_i c_i*t_i.  The raw t_i are the inner commitments; no B/C/D
+  // outer commitment exists in this final execution.
+  std::vector<Tq> zA_hat = ajtai_commitment(
+    lab_inst.param.A, n, lab_inst.param.kappa, final_proof.z_hat.data(), n);
+  std::vector<Tq> t_hat(final_proof.t.size());
+  ICICLE_CHECK(ntt(
+    final_proof.t.data(), final_proof.t.size(), NTTDir::kForward, {}, t_hat.data()));
+  std::vector<Tq> ct_hat(lab_inst.param.kappa);
+  ICICLE_CHECK(matmul(
+    challenges_hat.data(), 1, r, t_hat.data(), r, lab_inst.param.kappa, {}, ct_hat.data()));
+  if (!poly_vec_eq(zA_hat.data(), ct_hat.data(), ct_hat.size())) {
+    std::cout << "Section 5.6 verification failed: A*z != sum_i c_i*t_i\n";
+    return false;
+  }
+
+  std::vector<Tq> g_cross_hat(primary_count), g_diagonal_hat(primary_count);
+  std::vector<Tq> h_cross_hat(r - 1), h_diagonal_hat(r);
+  Tq g0_hat;
+  ICICLE_CHECK(ntt(&final_proof.g0, 1, NTTDir::kForward, {}, &g0_hat));
+  ICICLE_CHECK(ntt(
+    final_proof.g_cross.data(), primary_count, NTTDir::kForward, {}, g_cross_hat.data()));
+  ICICLE_CHECK(ntt(
+    final_proof.g_diagonal.data(), primary_count, NTTDir::kForward, {}, g_diagonal_hat.data()));
+  if (r > 1) {
+    ICICLE_CHECK(ntt(
+      final_proof.h_cross.data(), r - 1, NTTDir::kForward, {}, h_cross_hat.data()));
+  }
+  ICICLE_CHECK(ntt(
+    final_proof.h_diagonal.data(), r, NTTDir::kForward, {}, h_diagonal_hat.data()));
+
+  // <z,z> = g0 + sum_i (g_cross_i*c_i + g_diagonal_i*c_i^2).
+  Tq z_inner_product;
+  ICICLE_CHECK(matmul(
+    final_proof.z_hat.data(), 1, n, final_proof.z_hat.data(), n, 1, {}, &z_inner_product));
+  Tq g_rhs = g0_hat;
+  for (size_t i = 0; i < primary_count; ++i) {
+    Tq challenge_squared, cross_term, diagonal_term, sum;
+    ICICLE_CHECK(vector_mul(&challenges_hat[i], &challenges_hat[i], 1, {}, &challenge_squared));
+    ICICLE_CHECK(vector_mul(&g_cross_hat[i], &challenges_hat[i], 1, {}, &cross_term));
+    ICICLE_CHECK(vector_mul(&g_diagonal_hat[i], &challenge_squared, 1, {}, &diagonal_term));
+    ICICLE_CHECK(vector_add(&cross_term, &diagonal_term, 1, {}, &sum));
+    ICICLE_CHECK(vector_add(&g_rhs, &sum, 1, {}, &g_rhs));
+  }
+  if (!poly_vec_eq(&z_inner_product, &g_rhs, 1)) {
+    std::cout << "Section 5.6 verification failed: <z,z> garbage identity\n";
+    return false;
+  }
+
+  // sum_i <phi_i,z>c_i = sum_round
+  // (h_cross_round*c_i + h_diagonal_round*c_i^2).
+  const EqualityInstance& final_constraint = lab_inst.equality_constraints[0];
+  std::vector<Tq> phi_times_z(r);
+  ICICLE_CHECK(matmul(
+    final_constraint.phi.data(), r, n, final_proof.z_hat.data(), n, 1, {}, phi_times_z.data()));
+  Tq h_lhs;
+  ICICLE_CHECK(matmul(challenges_hat.data(), 1, r, phi_times_z.data(), r, 1, {}, &h_lhs));
+  Tq h_rhs = zero();
+  for (size_t round = 0; round < r; ++round) {
+    const size_t i = order[round];
+    Tq challenge_squared, diagonal_term, round_term;
+    ICICLE_CHECK(vector_mul(&challenges_hat[i], &challenges_hat[i], 1, {}, &challenge_squared));
+    ICICLE_CHECK(vector_mul(&h_diagonal_hat[round], &challenge_squared, 1, {}, &diagonal_term));
+    round_term = diagonal_term;
+    if (round > 0) {
+      Tq cross_term;
+      ICICLE_CHECK(vector_mul(&h_cross_hat[round - 1], &challenges_hat[i], 1, {}, &cross_term));
+      ICICLE_CHECK(vector_add(&round_term, &cross_term, 1, {}, &round_term));
+    }
+    ICICLE_CHECK(vector_add(&h_rhs, &round_term, 1, {}, &h_rhs));
+  }
+  if (!poly_vec_eq(&h_lhs, &h_rhs, 1)) {
+    std::cout << "Section 5.6 verification failed: phi garbage identity\n";
+    return false;
+  }
+
+  // The special tail is valid only for an instance whose quadratic support
+  // is diagonal and confined to the primary z rows.  Verify this invariant
+  // rather than trusting transition metadata.
+  const Tq zero_poly = zero();
+  for (size_t i = 0; i < r; ++i) {
+    for (size_t j = 0; j < r; ++j) {
+      if (i == j && i < primary_count) { continue; }
+      if (!poly_vec_eq(&final_constraint.a[i * r + j], &zero_poly, 1)) {
+        std::cout << "Section 5.6 verification failed: non-sparse quadratic instance\n";
+        return false;
+      }
+    }
+  }
+
+  std::vector<size_t> round_for_index(r);
+  for (size_t round = 0; round < r; ++round) { round_for_index[order[round]] = round; }
+  Tq final_identity = final_constraint.b;
+  for (size_t i = 0; i < primary_count; ++i) {
+    Tq term;
+    ICICLE_CHECK(vector_mul(
+      &final_constraint.a[i * r + i], &g_diagonal_hat[i], 1, {}, &term));
+    ICICLE_CHECK(vector_add(&final_identity, &term, 1, {}, &final_identity));
+  }
+  for (size_t i = 0; i < r; ++i) {
+    ICICLE_CHECK(vector_add(
+      &final_identity, &h_diagonal_hat[round_for_index[i]], 1, {}, &final_identity));
+  }
+  if (!poly_vec_eq(&final_identity, &zero_poly, 1)) {
+    std::cout << "Section 5.6 verification failed: aggregated relation identity\n";
+    return false;
+  }
+  return true;
+}
+
 // modifies the instance
 // Doesn't perform any checks
 // returns num_aggregation_rounds number of polynomials
@@ -316,7 +529,6 @@ void LabradorBaseVerifier::agg_const_zero_constraints()
 
   size_t JL_i = trs.prover_msg.JL_i;
   const std::vector<std::byte> seed1 = trs.seed1;
-  const std::vector<Zq>& p = trs.prover_msg.p;
   const std::vector<Zq>& psi = trs.psi;
   const std::vector<Zq>& omega = trs.omega;
   // indexes into multidim arrays: psi[k][l] and omega[k][l]
@@ -325,30 +537,10 @@ void LabradorBaseVerifier::agg_const_zero_constraints()
     assert(k < num_aggregation_rounds);
     return k * L + l;
   };
-  auto omega_index = [num_aggregation_rounds, JL_out](size_t k, size_t l) {
-    assert(l < JL_out);
-    assert(k < num_aggregation_rounds);
-    return k * JL_out + l;
-  };
-
   std::vector<std::byte> jl_seed = append_u64_le(seed1.data(), seed1.size(), static_cast<uint64_t>(JL_i));
 
-  DeviceVector<Rq> Q(JL_out * r * n);
-
-  ICICLE_CHECK(icicle::labrador::get_jl_matrix_rows(
-    jl_seed.data(), jl_seed.size(),
-    r * n,  // row_size
-    0,      // row_index
-    JL_out, // num_rows
-    true,   // conjugate
-    {},     // config
-    Q.data()));
-
-  std::vector<Zq> test_b0(num_aggregation_rounds, Zq::zero());
-
-  // Allocate memory required for large ops
-  DeviceVector<Rq> omega_times_Q(JL_out * r * n);
-  // Will start out in Rq and then in place NTT to Tq
+  // Shared with the prover: one accumulator plus a bounded streamed row
+  // buffer replaces the two full JL_out*r*n matrices.
   DeviceVector<PolyRing> reduction_result(r * n);
 
   for (size_t k = 0; k < num_aggregation_rounds; k++) {
@@ -396,34 +588,8 @@ void LabradorBaseVerifier::agg_const_zero_constraints()
         vector_add(new_constraint.phi.data(), temp_const[l].phi.data(), r * n, {}, new_constraint.phi.data()));
     }
 
-    // For each j do:
-    //    new_constraint.phi[:,:] += omega[k,j]* Q[j, :, :]
-
-    // First create omega_times_Q[j, :, :] = omega[k,j] * Q[j, :, :] in Rq
-
-    // Configure for batched operations
-    VecOpsConfig batch_config = default_vec_ops_config();
-    batch_config.batch_size = JL_out;
-    batch_config.columns_batch = false;
-
-    // Batch all scalar multiplications into a single call
-    ICICLE_CHECK(scalar_mul_vec(
-      &omega[k * JL_out], reinterpret_cast<const Zq*>(Q.data()), r * n * d, batch_config,
-      reinterpret_cast<Zq*>(omega_times_Q.data())));
-
-    // reduction_result[i,:] += \sum_j omega_times_Q[j, i, :]
-    VecOpsConfig sum_config = default_vec_ops_config();
-    sum_config.batch_size = r * n * d; // Number of reduction operations
-    sum_config.columns_batch = true;   // Elements to sum are strided across batches
-    sum_config.is_a_on_device = true;
-    sum_config.is_result_on_device = true;
-
-    // This will compute the sum across all j for each (i, element) pair
-    ICICLE_CHECK(vector_sum<Zq>(
-      reinterpret_cast<const Zq*>(omega_times_Q.data()), JL_out, sum_config,
-      reinterpret_cast<Zq*>(reduction_result.data())));
-
-    ICICLE_CHECK(ntt(reduction_result.data(), r * n, NTTDir::kForward, {}, reduction_result.data()));
+    aggregate_jl_projection_rows_ntt(
+      jl_seed.data(), jl_seed.size(), r * n, &omega[k * JL_out], JL_out, reduction_result.data());
 
     // Then add to new_constraint.phi
     ICICLE_CHECK(vector_add(new_constraint.phi.data(), reduction_result.data(), r * n, {}, new_constraint.phi.data()));
@@ -512,9 +678,21 @@ bool LabradorBaseVerifier::fully_verify(const LabradorBaseCaseProof& base_proof)
   }
 }
 
+bool LabradorBaseVerifier::fully_verify(const LabradorSection56Proof& final_proof)
+{
+  if (part_verify()) {
+    return _verify_section_5_6_proof(final_proof);
+  }
+  return false;
+}
+
 bool LabradorVerifier::verify()
 {
   if (NUM_REC == 0 || prover_msgs.size() != NUM_REC) { return false; }
+  if (final_proof.uses_section_5_6 != (NUM_REC > 1)) {
+    std::cout << "Unexpected LaBRADOR final-proof mode\n";
+    return false;
+  }
   LabradorInstance lab_inst_i = lab_inst;
   for (size_t i = 0; i < NUM_REC - 1; i++) {
     // std::cout << "Verifier::Recursion iteration = " << i << "\n";
@@ -525,7 +703,9 @@ bool LabradorVerifier::verify()
     }
     // Part verify correctly aggregates constraints
 
-    const LabradorTransitionPlan transition = derive_transition_plan(lab_inst_i.param);
+    const bool final_transition = (i + 1 == NUM_REC - 1);
+    const LabradorTransitionPlan transition =
+      derive_protocol_transition_plan(lab_inst_i.param, final_transition);
 
     EqualityInstance final_const = base_verifier.lab_inst.equality_constraints[0];
     lab_inst_i = prepare_recursion_instance(
@@ -534,17 +714,27 @@ bool LabradorVerifier::verify()
       base_verifier.trs,
       transition.z_base,
       transition.mu,
-      transition.nu);
+      transition.nu,
+      !final_transition);
     oracle = base_verifier.oracle;
 
     // std::cout << "\tVerifier::Recursion problem prepared\n";
     // std::cout << "\tn= " << lab_inst_i.param.n << ", r= " << lab_inst_i.param.r << "\n";
   }
   // std::cout << "Verifier::Recursion iteration = " << NUM_REC - 1 << "\n";
-  LabradorBaseVerifier base_verifier(lab_inst_i, prover_msgs[NUM_REC - 1], oracle);
-  if (!base_verifier.fully_verify(final_proof)) {
-    std::cout << "\tVerifier- Final verification failed\n";
-    return false;
+  if (NUM_REC > 1) {
+    LabradorBaseVerifier base_verifier(
+      lab_inst_i, prover_msgs[NUM_REC - 1], final_proof.section_5_6, oracle);
+    if (!base_verifier.fully_verify(final_proof.section_5_6)) {
+      std::cout << "\tVerifier- Section 5.6 final verification failed\n";
+      return false;
+    }
+  } else {
+    LabradorBaseVerifier base_verifier(lab_inst_i, prover_msgs[0], oracle);
+    if (!base_verifier.fully_verify(final_proof.base)) {
+      std::cout << "\tVerifier- Final verification failed\n";
+      return false;
+    }
   }
   return true;
 }

@@ -10,6 +10,6 @@ ICICLE_DEFINE_FIELD_FFI_FUNCS(, scalar_t);
 ICICLE_DEFINE_FIELD_FFI_FUNCS(_extension, extension_t);
 #endif // EXT_FIELD
 
-#ifdef RING
+#ifdef RING_HAS_RNS
 ICICLE_DEFINE_FIELD_FFI_FUNCS(_rns, scalar_rns_t);
-#endif // RING
+#endif // RING_HAS_RNS

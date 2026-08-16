@@ -23,4 +23,8 @@ set(ICICLE_CURVES
 # Format: index:curve:features
 set(ICICLE_RINGS
   2001:babykoala:NTT
+  # The requested/LOGQ40 modulus has no primitive 128-th root.  Its degree-64 ring
+  # arithmetic is provided by src/exact_ring_backend.cpp, not ICICLE's
+  # point-evaluation NTT backend.
+  2002:labradorq40:NONE
 )

@@ -315,11 +315,26 @@ public:
   static HOST_INLINE Derived rand_host()
   {
     std::uniform_int_distribution<unsigned> distribution;
-    Derived value{};
-    for (unsigned i = 0; i < TLC; i++)
-      value.limbs_storage.limbs[i] = distribution(rand_generator);
-    while (lt(Derived{get_modulus()}, value))
-      value = value - Derived{get_modulus()};
+    const auto draw = [&distribution]() {
+      Derived value{};
+      for (unsigned i = 0; i < TLC; i++) {
+        value.limbs_storage.limbs[i] = distribution(rand_generator);
+      }
+      // Sampling only NBITS bits keeps rejection probability bounded even
+      // when the storage has many slack bits (for example a 40-bit modulus in
+      // two 32-bit limbs).  Rejection, unlike modular reduction, is uniform.
+      if constexpr (NBITS % 32 != 0) {
+        constexpr uint32_t top_mask = (uint32_t{1} << (NBITS % 32)) - 1;
+        value.limbs_storage.limbs[TLC - 1] &= top_mask;
+      }
+      return value;
+    };
+
+    Derived value = draw();
+    const Derived modulus{get_modulus()};
+    while (!lt(value, modulus)) {
+      value = draw();
+    }
     return value;
   }
 
@@ -500,9 +515,19 @@ public:
   {
     Derived value;
     memcpy(reinterpret_cast<std::byte*>(value.limbs_storage.limbs), in, TLC * 4);
-    while (lt(Derived{get_modulus()}, value))
-      value = value - Derived{get_modulus()};
-    return value;
+    // A TLC-limb input fits the Barrett reducer whenever its zero-extended
+    // wide representation has the required 2*slack_bits clear at the top.
+    // This avoids millions of repeated subtractions for small moduli stored
+    // in comparatively wide limb containers.
+    if constexpr (2 * slack_bits <= 32 * TLC) {
+      return Wide::from_field(value).reduce();
+    } else {
+      const Derived modulus{get_modulus()};
+      while (!lt(value, modulus)) {
+        value = value - modulus;
+      }
+      return value;
+    }
   }
 
   HOST_DEVICE Derived& operator=(Derived const& other)

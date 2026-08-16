@@ -41,9 +41,9 @@ REGISTER_NTT_BACKEND("CPU", (cpu_ntt<scalar_t, scalar_t>));
 REGISTER_NTT_EXT_FIELD_BACKEND("CPU", (cpu_ntt<scalar_t, extension_t>));
 #endif // EXT_FIELD
 
-#ifdef RING
+#ifdef RING_HAS_RNS
 REGISTER_NTT_INIT_DOMAIN_RING_RNS_BACKEND("CPU", (cpu_ntt_init_domain<scalar_rns_t>));
 REGISTER_NTT_RELEASE_DOMAIN_RING_RNS_BACKEND("CPU", cpu_ntt_release_domain<scalar_rns_t>);
 REGISTER_NTT_GET_ROU_FROM_DOMAIN_RING_RNS_BACKEND("CPU", cpu_get_root_of_unity_from_domain<scalar_rns_t>);
 REGISTER_NTT_RING_RNS_BACKEND("CPU", (cpu_ntt<scalar_rns_t, scalar_rns_t>));
-#endif // RING
+#endif // RING_HAS_RNS

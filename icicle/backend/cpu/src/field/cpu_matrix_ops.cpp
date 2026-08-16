@@ -371,6 +371,8 @@ REGISTER_MATRIX_TRANSPOSE_EXT_FIELD_BACKEND("CPU", (cpu_matrix_transpose<field_c
 #endif
 #ifdef RING
 REGISTER_POLY_RING_MATMUL_BACKEND("CPU", (cpu_matmul_polynomial_ring<field_config::PolyRing>));
+#ifdef RING_HAS_RNS
 REGISTER_MATRIX_TRANSPOSE_RING_RNS_BACKEND("CPU", cpu_matrix_transpose<field_config::scalar_rns_t>);
+#endif
 REGISTER_MATRIX_TRANSPOSE_POLY_RING_BACKEND("CPU", cpu_matrix_transpose<field_config::PolyRing>);
 #endif

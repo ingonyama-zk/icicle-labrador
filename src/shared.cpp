@@ -1,14 +1,18 @@
 #include "shared.h"
+#include "device_vector.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace {
 
-constexpr long double LABRADOR_TAU = 71.0L;
+constexpr long double LABRADOR_TAU =
+  static_cast<long double>(icicle::labrador::backend_config::CHALLENGE_TAU);
 
 size_t checked_add_size(size_t left, size_t right, const char* label)
 {
@@ -118,7 +122,7 @@ DecompositionChoice choose_decomposition(size_t n, size_t r, double beta)
 int64_t centered_coefficient(const Zq& value)
 {
   int64_t encoded = 0;
-  static_assert(sizeof(encoded) == sizeof(value), "BabyKoala coefficient must occupy 64 bits");
+  static_assert(sizeof(encoded) == sizeof(value), "backend coefficient must occupy 64 bits");
   std::memcpy(&encoded, &value, sizeof(encoded));
   const int64_t q = get_q<Zq>();
   if (encoded > q / 2) { encoded -= q; }
@@ -158,6 +162,81 @@ LabradorDecompositionPlan derive_decomposition_plan(size_t n, size_t r, double b
   };
 }
 
+LabradorDecompositionPlan derive_paper_schedule_decomposition(size_t one_based_level, double beta)
+{
+  const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
+  if (one_based_level == 0 || one_based_level > schedule.size()) {
+    throw std::invalid_argument("paper schedule level is outside the generated table");
+  }
+  const auto& row = schedule[one_based_level - 1];
+  LabradorDecompositionPlan ordinary = derive_decomposition_plan(row.n, row.r, beta);
+  if (one_based_level == schedule.size()) { return ordinary; }
+
+  const auto& next = schedule[one_based_level];
+  if (row.nu_to_next == 0 || row.mu_to_next == 0) {
+    throw std::runtime_error("non-final paper schedule row has no split");
+  }
+  const size_t pair_count = checked_mul_size(row.r, checked_add_size(row.r, 1, "schedule r+1"),
+                                             "schedule r(r+1)") /
+                            2;
+  auto auxiliary_length = [&](size_t digits1, size_t digits2) {
+    const size_t t = checked_mul_size(
+      checked_mul_size(digits1, row.r, "scheduled digits1*r"), row.kappa, "scheduled t length");
+    const size_t g = checked_mul_size(digits2, pair_count, "scheduled g length");
+    const size_t h = checked_mul_size(digits1, pair_count, "scheduled h length");
+    return checked_add_size(checked_add_size(t, g, "scheduled t+g"), h, "scheduled auxiliary length");
+  };
+  const size_t capacity = checked_mul_size(row.mu_to_next, next.n, "scheduled auxiliary capacity");
+  if (auxiliary_length(ordinary.digits1, ordinary.digits2) <= capacity) { return ordinary; }
+
+  // The supplied q~=2^40 table fixes n and r but not the decomposition
+  // widths.  In particular its penultimate row is too narrow for the plain
+  // b~=z-base heuristic.  Search the small public digit space and choose the
+  // capacity-valid option with the smallest resulting target norm.
+  constexpr size_t MAX_DIGITS = 40;
+  constexpr long double d = static_cast<long double>(Rq::d);
+  const long double s = static_cast<long double>(beta) /
+                        std::sqrt(static_cast<long double>(row.r) * row.n * d);
+  const long double garbage_scale = std::sqrt(24.0L * row.n * d) * s * s;
+  const long double gamma_squared = static_cast<long double>(beta) * beta * LABRADOR_TAU;
+  long double best_beta_squared = std::numeric_limits<long double>::infinity();
+  size_t best_auxiliary = std::numeric_limits<size_t>::max();
+  LabradorDecompositionPlan best{};
+  bool found = false;
+  for (size_t digits1 = 2; digits1 <= MAX_DIGITS; ++digits1) {
+    const uint32_t base1 = ceil_nth_root_u64(static_cast<uint64_t>(get_q<Zq>()), digits1);
+    for (size_t digits2 = 2; digits2 <= MAX_DIGITS; ++digits2) {
+      const size_t auxiliary = auxiliary_length(digits1, digits2);
+      if (auxiliary > capacity) { continue; }
+      const long double base2_real =
+        std::pow(std::max(1.0L, garbage_scale), 1.0L / static_cast<long double>(digits2));
+      const uint32_t base2 = std::max<uint32_t>(2, round_positive_to_u32(base2_real, "scheduled garbage base"));
+      const long double gamma1_squared =
+        (static_cast<long double>(base1) * base1 * digits1 / 12.0L) * row.r * row.kappa * d +
+        (static_cast<long double>(base2) * base2 * digits2 / 12.0L) * pair_count * d;
+      const long double gamma2_squared =
+        (static_cast<long double>(base1) * base1 * digits1 / 12.0L) * pair_count * d;
+      const long double target_beta_squared =
+        (row.section_5_6_tail
+           ? gamma_squared
+           : 2.0L * gamma_squared /
+               (static_cast<long double>(ordinary.z_base) * ordinary.z_base)) +
+        gamma1_squared + gamma2_squared;
+      if (!found || target_beta_squared < best_beta_squared ||
+          (target_beta_squared == best_beta_squared && auxiliary < best_auxiliary)) {
+        found = true;
+        best_beta_squared = target_beta_squared;
+        best_auxiliary = auxiliary;
+        best = {ordinary.z_base, digits1, digits2, digits1, base1, base2, base1};
+      }
+    }
+  }
+  if (!found) {
+    throw std::runtime_error("paper schedule row cannot fit any supported decomposition in the next level");
+  }
+  return best;
+}
+
 bool poly_vec_eq(const PolyRing* vec1, const PolyRing* vec2, size_t size)
 {
   for (size_t i = 0; i < size; i++) {
@@ -185,51 +264,470 @@ std::vector<Rq> sample_low_norm_challenges(size_t n, size_t r, const std::byte* 
   size_t d = Rq::d;
   std::vector<Rq> challenge(r, zero());
 
-  sample_challenge_space_polynomials(seed, seed_len, r, 31, 10, OP_NORM_BOUND, {}, challenge.data());
+  sample_challenge_space_polynomials(
+    seed,
+    seed_len,
+    r,
+    icicle::labrador::backend_config::CHALLENGE_UNIT_COEFFICIENTS,
+    icicle::labrador::backend_config::CHALLENGE_DOUBLE_COEFFICIENTS,
+    OP_NORM_BOUND,
+    {},
+    challenge.data());
   return challenge;
+}
+
+namespace {
+
+constexpr size_t CANONICAL_HASH_CHUNK_BYTES = 64 * 1024;
+
+void append_canonical_bytes(
+  std::vector<std::byte>& out,
+  const std::byte* data,
+  size_t length)
+{
+  if (length == 0) { return; }
+  if (data == nullptr) { throw std::invalid_argument("null canonical transcript input"); }
+  out.insert(out.end(), data, data + length);
+}
+
+void append_canonical_u8(std::vector<std::byte>& out, uint8_t value)
+{
+  out.push_back(std::byte(value));
+}
+
+void append_canonical_u32(std::vector<std::byte>& out, uint32_t value)
+{
+  for (size_t i = 0; i < sizeof(value); ++i) {
+    out.push_back(std::byte((value >> (8 * i)) & 0xffU));
+  }
+}
+
+void append_canonical_u64(std::vector<std::byte>& out, uint64_t value)
+{
+  for (size_t i = 0; i < sizeof(value); ++i) {
+    out.push_back(std::byte((value >> (8 * i)) & 0xffU));
+  }
+}
+
+uint64_t canonical_zq_value(const Zq& value)
+{
+  static_assert(sizeof(value.limbs_storage.limbs) == sizeof(uint64_t),
+                "canonical transcript expects a two-limb q40 coefficient");
+  const uint64_t encoded = uint64_t(value.limbs_storage.limbs[0]) |
+                           (uint64_t(value.limbs_storage.limbs[1]) << 32U);
+  if (encoded >= icicle::labrador::backend_config::RING_MODULUS) {
+    throw std::invalid_argument("non-canonical Zq value in Fiat--Shamir transcript");
+  }
+  return encoded;
+}
+
+void append_canonical_zq(std::vector<std::byte>& out, const Zq& value)
+{
+  append_canonical_u64(out, canonical_zq_value(value));
+}
+
+void append_canonical_poly(std::vector<std::byte>& out, const PolyRing& value)
+{
+  for (const Zq& coefficient : value.values) {
+    append_canonical_zq(out, coefficient);
+  }
+}
+
+void append_canonical_domain(std::vector<std::byte>& out, std::string_view domain)
+{
+  append_canonical_u64(out, static_cast<uint64_t>(domain.size()));
+  append_canonical_bytes(
+    out,
+    reinterpret_cast<const std::byte*>(domain.data()),
+    domain.size());
+}
+
+void append_canonical_f64(std::vector<std::byte>& out, double value)
+{
+  static_assert(sizeof(double) == sizeof(uint64_t) && std::numeric_limits<double>::is_iec559,
+                "canonical transcript requires IEEE-754 binary64");
+  if (!std::isfinite(value)) {
+    throw std::invalid_argument("non-finite binary64 in Fiat--Shamir transcript");
+  }
+  uint64_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  append_canonical_u64(out, bits);
+}
+
+class CanonicalHashChain {
+public:
+  explicit CanonicalHashChain(std::string_view domain)
+      : hasher(Sha3_256::create())
+  {
+    if (domain.empty() || hasher.output_size() != state.size()) {
+      throw std::runtime_error("invalid canonical transcript hash configuration");
+    }
+    ICICLE_CHECK(hasher.hash(
+      reinterpret_cast<const std::byte*>(domain.data()),
+      domain.size(),
+      {},
+      state.data()));
+  }
+
+  void absorb(std::string_view tag, const std::byte* data, size_t length)
+  {
+    if (tag.empty() || (length != 0 && data == nullptr)) {
+      throw std::invalid_argument("invalid canonical transcript record");
+    }
+    std::vector<std::byte> preimage;
+    const size_t header_size = checked_add_size(
+      checked_add_size(state.size(), sizeof(uint64_t) * 2, "canonical hash header"),
+      tag.size(),
+      "canonical hash tag");
+    preimage.reserve(checked_add_size(header_size, length, "canonical hash record"));
+    append_canonical_bytes(preimage, state.data(), state.size());
+    append_canonical_domain(preimage, tag);
+    append_canonical_u64(preimage, static_cast<uint64_t>(length));
+    append_canonical_bytes(preimage, data, length);
+    ICICLE_CHECK(hasher.hash(preimage.data(), preimage.size(), {}, state.data()));
+  }
+
+  void absorb(std::string_view tag, const std::vector<std::byte>& data)
+  {
+    absorb(tag, data.data(), data.size());
+  }
+
+  Oracle finish() const { return Oracle(state.data(), state.size()); }
+
+private:
+  Hash hasher;
+  std::array<std::byte, 32> state{};
+};
+
+void absorb_polynomials(
+  CanonicalHashChain& chain,
+  std::string_view tag,
+  const PolyRing* values,
+  size_t count)
+{
+  if (count != 0 && values == nullptr) {
+    throw std::invalid_argument("null polynomial vector in public instance");
+  }
+  std::vector<std::byte> header;
+  append_canonical_u64(header, static_cast<uint64_t>(count));
+  append_canonical_u32(header, static_cast<uint32_t>(PolyRing::d));
+  chain.absorb(tag, header);
+
+  std::vector<std::byte> chunk;
+  chunk.reserve(CANONICAL_HASH_CHUNK_BYTES);
+  for (size_t polynomial = 0; polynomial < count; ++polynomial) {
+    for (const Zq& coefficient : values[polynomial].values) {
+      append_canonical_zq(chunk, coefficient);
+      if (chunk.size() == CANONICAL_HASH_CHUNK_BYTES) {
+        chain.absorb("Zq-vector-chunk-v1", chunk);
+        chunk.clear();
+      }
+    }
+  }
+  if (!chunk.empty()) { chain.absorb("Zq-vector-chunk-v1", chunk); }
+}
+
+} // namespace
+
+std::vector<std::byte> canonical_polynomial_transcript_message(
+  std::string_view domain,
+  const PolyRing* values,
+  size_t count)
+{
+  if (domain.empty() || (count != 0 && values == nullptr)) {
+    throw std::invalid_argument("invalid canonical polynomial transcript message");
+  }
+  const size_t coefficient_count =
+    checked_mul_size(count, PolyRing::d, "canonical polynomial coefficient count");
+  const size_t coefficient_bytes =
+    checked_mul_size(coefficient_count, sizeof(uint64_t), "canonical polynomial byte count");
+  std::vector<std::byte> message;
+  message.reserve(checked_add_size(
+    checked_add_size(sizeof(uint64_t) * 3, domain.size(), "canonical polynomial header"),
+    coefficient_bytes,
+    "canonical polynomial message"));
+  append_canonical_domain(message, domain);
+  append_canonical_u64(message, static_cast<uint64_t>(count));
+  append_canonical_u64(message, static_cast<uint64_t>(PolyRing::d));
+  for (size_t i = 0; i < count; ++i) { append_canonical_poly(message, values[i]); }
+  return message;
+}
+
+std::vector<std::byte> canonical_jl_transcript_message(
+  std::string_view domain,
+  size_t retry_counter,
+  const std::vector<Zq>& projection)
+{
+  if (domain.empty()) {
+    throw std::invalid_argument("empty JL transcript domain");
+  }
+  const size_t coefficient_bytes =
+    checked_mul_size(projection.size(), sizeof(uint64_t), "canonical JL byte count");
+  std::vector<std::byte> message;
+  message.reserve(checked_add_size(
+    checked_add_size(sizeof(uint64_t) * 3, domain.size(), "canonical JL header"),
+    coefficient_bytes,
+    "canonical JL message"));
+  append_canonical_domain(message, domain);
+  append_canonical_u64(message, static_cast<uint64_t>(retry_counter));
+  append_canonical_u64(message, static_cast<uint64_t>(projection.size()));
+  for (const Zq& coefficient : projection) { append_canonical_zq(message, coefficient); }
+  return message;
+}
+
+std::vector<std::byte> section_5_6_first_message(const std::vector<Rq>& t)
+{
+  return canonical_polynomial_transcript_message(
+    "LaBRADOR-Section-5.6-first-v2", t.data(), t.size());
+}
+
+std::vector<std::byte> section_5_6_round_message(
+  size_t round,
+  const Rq* h_cross,
+  const Rq& h_diagonal,
+  const Rq* g0,
+  const Rq* g_cross,
+  const Rq* g_diagonal)
+{
+  static constexpr std::string_view DOMAIN = "LaBRADOR-Section-5.6-round-v2";
+  const uint8_t flags =
+    (h_cross == nullptr ? 0U : 1U) | (g0 == nullptr ? 0U : 2U) |
+    (g_cross == nullptr ? 0U : 4U) | (g_diagonal == nullptr ? 0U : 8U);
+  std::vector<std::byte> message;
+  message.reserve(
+    sizeof(uint64_t) * 2 + DOMAIN.size() + 1 + 5 * Rq::d * sizeof(uint64_t));
+  append_canonical_domain(message, DOMAIN);
+  append_canonical_u64(message, static_cast<uint64_t>(round));
+  append_canonical_u8(message, flags);
+  if (h_cross != nullptr) { append_canonical_poly(message, *h_cross); }
+  append_canonical_poly(message, h_diagonal);
+  if (g0 != nullptr) { append_canonical_poly(message, *g0); }
+  if (g_cross != nullptr) { append_canonical_poly(message, *g_cross); }
+  if (g_diagonal != nullptr) { append_canonical_poly(message, *g_diagonal); }
+  return message;
+}
+
+std::vector<size_t> section_5_6_challenge_order(size_t r, size_t primary_count)
+{
+  if (primary_count == 0 || primary_count > r) {
+    throw std::invalid_argument("invalid Section 5.6 challenge partition");
+  }
+  std::vector<size_t> order;
+  order.reserve(r);
+  for (size_t i = primary_count; i < r; ++i) { order.push_back(i); }
+  for (size_t i = 0; i < primary_count; ++i) { order.push_back(i); }
+  return order;
+}
+
+size_t jl_aggregation_chunk_rows(
+  size_t row_size_polynomials,
+  size_t total_rows,
+  size_t scratch_bytes)
+{
+  if (row_size_polynomials == 0 || total_rows == 0 || scratch_bytes == 0) {
+    throw std::invalid_argument("JL aggregation dimensions must be non-zero");
+  }
+  const size_t bytes_per_row = checked_mul_size(row_size_polynomials, sizeof(Rq), "JL row bytes");
+  const size_t rows_by_budget = std::max<size_t>(1, scratch_bytes / bytes_per_row);
+  return std::min(total_rows, rows_by_budget);
+}
+
+void aggregate_jl_projection_rows_ntt(
+  const std::byte* seed,
+  size_t seed_len,
+  size_t row_size_polynomials,
+  const Zq* weights,
+  size_t total_rows,
+  Tq* output_device,
+  size_t scratch_bytes)
+{
+  if (seed == nullptr || seed_len == 0 || weights == nullptr || output_device == nullptr) {
+    throw std::invalid_argument("JL aggregation received a null input");
+  }
+  const size_t chunk_rows =
+    jl_aggregation_chunk_rows(row_size_polynomials, total_rows, scratch_bytes);
+  const size_t chunk_polynomials =
+    checked_mul_size(chunk_rows, row_size_polynomials, "JL streamed chunk");
+  const size_t scalar_row_size =
+    checked_mul_size(row_size_polynomials, Rq::d, "JL scalar row size");
+  if (scalar_row_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    throw std::overflow_error("JL scalar row size exceeds backend batch range");
+  }
+  DeviceVector<Rq> rows(chunk_polynomials);
+
+  // DeviceVector is zero-initialized, but output is caller-owned and reused
+  // across aggregation repetitions.
+  ICICLE_CHECK(icicle_memset(output_device, 0, row_size_polynomials * sizeof(Tq)));
+
+  VecOpsConfig scale_config = default_vec_ops_config();
+  scale_config.is_a_on_device = false;
+  scale_config.is_b_on_device = true;
+  scale_config.is_result_on_device = true;
+  scale_config.columns_batch = false;
+
+  VecOpsConfig add_config = default_vec_ops_config();
+  add_config.is_a_on_device = true;
+  add_config.is_b_on_device = true;
+  add_config.is_result_on_device = true;
+
+  VecOpsConfig sum_config = default_vec_ops_config();
+  sum_config.batch_size = static_cast<int>(scalar_row_size);
+  sum_config.columns_batch = true;
+  sum_config.is_a_on_device = true;
+  sum_config.is_result_on_device = true;
+
+  for (size_t row_offset = 0; row_offset < total_rows; row_offset += chunk_rows) {
+    const size_t rows_this_chunk = std::min(chunk_rows, total_rows - row_offset);
+    ICICLE_CHECK(icicle::labrador::get_jl_matrix_rows(
+      seed,
+      seed_len,
+      row_size_polynomials,
+      row_offset,
+      rows_this_chunk,
+      true,
+      {},
+      rows.data()));
+
+    scale_config.batch_size = static_cast<int>(rows_this_chunk);
+    ICICLE_CHECK(scalar_mul_vec(
+      &weights[row_offset],
+      reinterpret_cast<const Zq*>(rows.data()),
+      scalar_row_size,
+      scale_config,
+      reinterpret_cast<Zq*>(rows.data())));
+
+    // Fold the preceding accumulator into the first streamed row, then reduce
+    // the whole chunk directly back into the accumulator.  This needs no
+    // second r*n scratch vector and only two backend calls per chunk.
+    ICICLE_CHECK(vector_add(
+      reinterpret_cast<Tq*>(rows.data()),
+      output_device,
+      row_size_polynomials,
+      add_config,
+      reinterpret_cast<Tq*>(rows.data())));
+    ICICLE_CHECK(vector_sum<Zq>(
+      reinterpret_cast<const Zq*>(rows.data()),
+      rows_this_chunk,
+      sum_config,
+      reinterpret_cast<Zq*>(output_device)));
+  }
+
+  ICICLE_CHECK(ntt(
+    output_device,
+    row_size_polynomials,
+    NTTDir::kForward,
+    {},
+    output_device));
 }
 
 Oracle create_oracle_seed(const std::byte* seed, size_t seed_len, const LabradorInstance& inst)
 {
-  std::vector<std::byte> buf;
+  if (seed_len != 0 && seed == nullptr) {
+    throw std::invalid_argument("null external Fiat--Shamir seed");
+  }
+  static_assert(sizeof(size_t) <= sizeof(uint64_t),
+                "canonical transcript cannot encode this size_t architecture");
 
-  auto append = [&](auto value) {
-    std::byte* p = reinterpret_cast<std::byte*>(&value);
-    buf.insert(buf.end(), p, p + sizeof(value));
-  };
+  CanonicalHashChain chain{"LaBRADOR-public-instance-v2"};
+  chain.absorb("external-seed", seed, seed_len);
 
-  // 0. external seed
-  buf.insert(buf.end(), seed, seed + seed_len);
-
-  // 1. fixed protocol parameters
+  // Fixed-width, explicitly ordered public protocol parameters.  The modulus
+  // and degree prevent the same byte-level statement from being replayed
+  // against another compiled ring backend.
   const LabradorParam& prm = inst.param;
-  append(prm.r);
-  append(prm.n);
-  append(prm.kappa);
-  append(prm.kappa1);
-  append(prm.kappa2);
-  append(prm.base1);
-  append(prm.base2);
-  append(prm.base3);
-  append(prm.digits1);
-  append(prm.digits2);
-  append(prm.digits3);
-  append(prm.JL_out);
-  append(prm.beta);
-  append(prm.op_norm_bound);
-  append(prm.num_aggregation_rounds);
+  if (!(prm.beta > 0.0) || !std::isfinite(prm.beta)) {
+    throw std::invalid_argument("invalid witness norm bound in public transcript");
+  }
+  std::vector<std::byte> parameters;
+  parameters.reserve(4 * sizeof(uint32_t) + 17 * sizeof(uint64_t) + 1);
+  append_canonical_u32(parameters, icicle::labrador::backend_config::RING_DEGREE);
+  append_canonical_u64(parameters, icicle::labrador::backend_config::RING_MODULUS);
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.r));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.n));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.kappa));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.kappa1));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.kappa2));
+  append_canonical_u32(parameters, prm.base1);
+  append_canonical_u32(parameters, prm.base2);
+  append_canonical_u32(parameters, prm.base3);
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.digits1));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.digits2));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.digits3));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.JL_out));
+  append_canonical_f64(parameters, prm.beta);
+  append_canonical_u64(parameters, prm.op_norm_bound);
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.num_aggregation_rounds));
+  append_canonical_u8(parameters, prm.section_5_6_final ? 1U : 0U);
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.final_primary_count));
+  append_canonical_u64(parameters, static_cast<uint64_t>(prm.paper_schedule_level));
+  chain.absorb("protocol-parameters", parameters);
+  chain.absorb("ajtai-seed", prm.ajtai_seed);
 
-  // 1.a Ajtai seed (variable length)
-  append(prm.ajtai_seed.size());
-  buf.insert(buf.end(), prm.ajtai_seed.begin(), prm.ajtai_seed.end());
+  const size_t expected_a = checked_mul_size(prm.n, prm.kappa, "Ajtai A shape");
+  if (prm.A.size() != expected_a) {
+    throw std::invalid_argument("Ajtai A does not match the transcript-bound dimensions");
+  }
+  // B/C/D are deterministically generated from the Ajtai seed above.  Check
+  // their public shapes so a malformed copied instance cannot silently reuse
+  // the same initial transcript state.
+  if (prm.section_5_6_final) {
+    if (!prm.B.empty() || !prm.C.empty() || !prm.D.empty()) {
+      throw std::invalid_argument("Section 5.6 final instance has unexpected outer CRS matrices");
+    }
+  } else {
+    const size_t expected_b = checked_mul_size(prm.t_len(), prm.kappa1, "Ajtai B shape");
+    const size_t expected_c = checked_mul_size(prm.g_len(), prm.kappa1, "Ajtai C shape");
+    const size_t expected_d = checked_mul_size(prm.h_len(), prm.kappa2, "Ajtai D shape");
+    if (prm.B.size() != expected_b || prm.C.size() != expected_c || prm.D.size() != expected_d) {
+      throw std::invalid_argument("outer Ajtai matrices do not match transcript-bound dimensions");
+    }
+  }
 
-  // 2. only counts of constraints
-  append(inst.equality_constraints.size());
-  append(inst.const_zero_constraints.size());
+  std::vector<std::byte> constraint_counts;
+  append_canonical_u64(
+    constraint_counts, static_cast<uint64_t>(inst.equality_constraints.size()));
+  append_canonical_u64(
+    constraint_counts, static_cast<uint64_t>(inst.const_zero_constraints.size()));
+  chain.absorb("constraint-counts", constraint_counts);
 
-  // TODO: add contents of equality and const_zero constraints
+  const size_t expected_quadratic = checked_mul_size(prm.r, prm.r, "constraint a shape");
+  const size_t expected_linear = checked_mul_size(prm.r, prm.n, "constraint phi shape");
+  for (size_t index = 0; index < inst.equality_constraints.size(); ++index) {
+    const EqualityInstance& constraint = inst.equality_constraints[index];
+    if (constraint.r != prm.r || constraint.n != prm.n ||
+        constraint.a.size() != expected_quadratic ||
+        constraint.phi.size() != expected_linear) {
+      throw std::invalid_argument("malformed equality constraint in public transcript");
+    }
+    std::vector<std::byte> header;
+    append_canonical_u64(header, static_cast<uint64_t>(index));
+    append_canonical_u64(header, static_cast<uint64_t>(constraint.r));
+    append_canonical_u64(header, static_cast<uint64_t>(constraint.n));
+    chain.absorb("equality-header", header);
+    absorb_polynomials(chain, "equality-a", constraint.a.data(), constraint.a.size());
+    absorb_polynomials(chain, "equality-phi", constraint.phi.data(), constraint.phi.size());
+    absorb_polynomials(chain, "equality-b", &constraint.b, 1);
+  }
+  for (size_t index = 0; index < inst.const_zero_constraints.size(); ++index) {
+    const ConstZeroInstance& constraint = inst.const_zero_constraints[index];
+    if (constraint.r != prm.r || constraint.n != prm.n ||
+        constraint.a.size() != expected_quadratic ||
+        constraint.phi.size() != expected_linear) {
+      throw std::invalid_argument("malformed constant-zero constraint in public transcript");
+    }
+    std::vector<std::byte> header;
+    append_canonical_u64(header, static_cast<uint64_t>(index));
+    append_canonical_u64(header, static_cast<uint64_t>(constraint.r));
+    append_canonical_u64(header, static_cast<uint64_t>(constraint.n));
+    chain.absorb("constant-zero-header", header);
+    absorb_polynomials(chain, "constant-zero-a", constraint.a.data(), constraint.a.size());
+    absorb_polynomials(chain, "constant-zero-phi", constraint.phi.data(), constraint.phi.size());
+    std::vector<std::byte> constant;
+    append_canonical_zq(constant, constraint.b);
+    chain.absorb("constant-zero-b", constant);
+  }
 
-  return Oracle(buf.data(), buf.size());
+  return chain.finish();
 }
 
 uint32_t calc_base0(size_t r, uint64_t op_norm_bound, double beta)
@@ -396,9 +894,140 @@ LabradorTransitionPlan derive_transition_plan(const LabradorParam& param)
     param.beta);
 }
 
+LabradorTransitionPlan derive_final_transition_plan(const LabradorParam& param)
+{
+  LabradorTransitionPlan plan = derive_transition_plan(param);
+
+  // Section 5.6 deliberately skips z=z^(0)+b*z^(1) before the final
+  // execution.  Replace the decomposed-z contribution 2*gamma^2/b^2 by the
+  // direct gamma^2 contribution in Equation (5).
+  const long double gamma_squared =
+    static_cast<long double>(param.beta) * param.beta * LABRADOR_TAU;
+  const long double old_z_squared =
+    2.0L * gamma_squared / (static_cast<long double>(plan.z_base) * plan.z_base);
+  const long double beta_squared =
+    static_cast<long double>(plan.beta_next) * plan.beta_next - old_z_squared + gamma_squared;
+  if (!(beta_squared > 0.0L) || !std::isfinite(static_cast<double>(beta_squared))) {
+    throw std::runtime_error("derived Section 5.6 beta_next is invalid");
+  }
+  plan.beta_next = static_cast<double>(std::sqrt(beta_squared));
+
+  if (plan.nu > std::numeric_limits<size_t>::max() - plan.mu) {
+    throw std::overflow_error("derived Section 5.6 r_next overflows size_t");
+  }
+  plan.r_next = plan.nu + plan.mu;
+  plan.n_next = std::max(ceil_div_size(param.n, plan.nu), ceil_div_size(plan.auxiliary_len, plan.mu));
+
+  // These bases are not used for an outer commitment in the final execution,
+  // but keeping deterministic values makes the public parameter transcript
+  // canonical and leaves the generic relation representation well formed.
+  const DecompositionChoice next_choice =
+    choose_decomposition(plan.n_next, plan.r_next, plan.beta_next);
+  plan.digits1 = next_choice.digits1;
+  plan.digits2 = next_choice.digits2;
+  plan.digits3 = next_choice.digits1;
+  plan.base1 = next_choice.base1;
+  plan.base2 = next_choice.base2;
+  plan.base3 = next_choice.base1;
+  return plan;
+}
+
+LabradorTransitionPlan derive_paper_schedule_transition(
+  size_t one_based_level, double beta)
+{
+  const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
+  if (one_based_level == 0 || one_based_level >= schedule.size()) {
+    throw std::invalid_argument("paper schedule has no transition after the requested level");
+  }
+  const auto& current = schedule[one_based_level - 1];
+  const auto& next = schedule[one_based_level];
+  const LabradorDecompositionPlan decomposition =
+    derive_paper_schedule_decomposition(one_based_level, beta);
+  LabradorTransitionPlan plan = derive_transition_plan(
+    current.n,
+    current.r,
+    current.kappa,
+    decomposition.base1,
+    decomposition.base2,
+    decomposition.base3,
+    decomposition.digits1,
+    decomposition.digits2,
+    decomposition.digits3,
+    beta);
+
+  if (current.section_5_6_tail) {
+    const long double gamma_squared = static_cast<long double>(beta) * beta * LABRADOR_TAU;
+    const long double old_z_squared =
+      2.0L * gamma_squared /
+      (static_cast<long double>(plan.z_base) * plan.z_base);
+    const long double beta_squared =
+      static_cast<long double>(plan.beta_next) * plan.beta_next - old_z_squared + gamma_squared;
+    if (!(beta_squared > 0.0L) || !std::isfinite(static_cast<double>(beta_squared))) {
+      throw std::runtime_error("derived scheduled Section 5.6 beta_next is invalid");
+    }
+    plan.beta_next = static_cast<double>(std::sqrt(beta_squared));
+  }
+
+  plan.mu = current.mu_to_next;
+  plan.nu = current.nu_to_next;
+  plan.n_next = next.n;
+  plan.r_next = next.r;
+  const size_t expected_r =
+    (current.section_5_6_tail ? plan.nu : 2 * plan.nu) + plan.mu;
+  if (plan.mu == 0 || plan.nu == 0 || expected_r != plan.r_next) {
+    throw std::runtime_error("generated paper schedule has an invalid multiplicity split");
+  }
+  const size_t minimum_n =
+    std::max(ceil_div_size(current.n, plan.nu), ceil_div_size(plan.auxiliary_len, plan.mu));
+  if (plan.n_next < minimum_n) {
+    throw std::runtime_error("generated paper schedule cannot hold the complete recursion witness");
+  }
+
+  const LabradorDecompositionPlan next_decomposition =
+    derive_paper_schedule_decomposition(one_based_level + 1, plan.beta_next);
+  plan.digits1 = next_decomposition.digits1;
+  plan.digits2 = next_decomposition.digits2;
+  plan.digits3 = next_decomposition.digits3;
+  plan.base1 = next_decomposition.base1;
+  plan.base2 = next_decomposition.base2;
+  plan.base3 = next_decomposition.base3;
+  return plan;
+}
+
+LabradorTransitionPlan derive_protocol_transition_plan(
+  const LabradorParam& param, bool final_transition)
+{
+  if (param.paper_schedule_level == 0) {
+    return final_transition ? derive_final_transition_plan(param) : derive_transition_plan(param);
+  }
+
+  const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
+  const size_t index = param.paper_schedule_level - 1;
+  if (index >= schedule.size() || index + 1 >= schedule.size()) {
+    throw std::invalid_argument("paper schedule has no transition after the current level");
+  }
+  const auto& current = schedule[index];
+  if (param.n != current.n || param.r != current.r || param.kappa != current.kappa ||
+      param.kappa1 != current.kappa1 || param.kappa2 != current.kappa2) {
+    throw std::runtime_error("runtime parameter does not match its generated paper schedule row");
+  }
+  if (final_transition != current.section_5_6_tail) {
+    throw std::runtime_error("paper schedule and recursion count disagree on the Section 5.6 transition");
+  }
+
+  const LabradorDecompositionPlan expected =
+    derive_paper_schedule_decomposition(param.paper_schedule_level, param.beta);
+  if (param.base1 != expected.base1 || param.base2 != expected.base2 || param.base3 != expected.base3 ||
+      param.digits1 != expected.digits1 || param.digits2 != expected.digits2 ||
+      param.digits3 != expected.digits3) {
+    throw std::runtime_error("runtime decomposition does not match its generated paper schedule row");
+  }
+  return derive_paper_schedule_transition(param.paper_schedule_level, param.beta);
+}
+
 size_t secure_msis_rank()
 {
-  const double log_delta = log2(1.0045);
+  const double log_delta = log2(icicle::labrador::backend_config::ROOT_HERMITE_DELTA);
   const double log_q = log2(get_q<Zq>());
 
   double k_f = pow(log_q - 1.0, 2) / 4 / log_delta / log_q / Rq::d;
@@ -409,7 +1038,7 @@ size_t RecursionPreparer::z0_begin_idx() const { return 0; }
 
 size_t RecursionPreparer::z1_begin_idx() const { return nu * n_prime; }
 
-size_t RecursionPreparer::t_begin_idx() const { return (2 * nu) * n_prime; }
+size_t RecursionPreparer::t_begin_idx() const { return (decompose_z ? 2 * nu : nu) * n_prime; }
 
 size_t RecursionPreparer::g_begin_idx() const { return t_begin_idx() + t_len; }
 
@@ -423,6 +1052,7 @@ eIcicleError RecursionPreparer::copy_like_z0(Rq* dst, const Rq* src) const
 
 eIcicleError RecursionPreparer::copy_like_z1(Rq* dst, const Rq* src) const
 {
+  if (!decompose_z) { return eIcicleError::INVALID_ARGUMENT; }
   // copy to dst[z1_begin_idx() : z1_begin_idx() + n]
   return icicle_copy(&dst[z1_begin_idx()], src, prev_n * sizeof(Rq));
 }
@@ -451,7 +1081,8 @@ LabradorInstance prepare_recursion_instance(
   const PartialTranscript& trs,
   uint32_t base0,
   size_t mu,
-  size_t nu)
+  size_t nu,
+  bool decompose_z)
 {
   const size_t r = final_const.r;
   const size_t n = final_const.n;
@@ -469,7 +1100,10 @@ LabradorInstance prepare_recursion_instance(
   const std::vector<Tq>& C = prev_param.C;
   const std::vector<Tq>& D = prev_param.D;
 
-  RecursionPreparer preparer{prev_param, mu, nu, base0};
+  const LabradorTransitionPlan transition =
+    derive_protocol_transition_plan(prev_param, !decompose_z);
+  RecursionPreparer preparer{
+    prev_param, mu, nu, base0, decompose_z, transition.n_next};
 
   size_t n_prime = preparer.n_prime;
   size_t t_len = preparer.t_len;
@@ -481,18 +1115,29 @@ LabradorInstance prepare_recursion_instance(
   std::vector<std::byte> new_ajtai_seed(prev_param.ajtai_seed);
   new_ajtai_seed.push_back(std::byte('1'));
 
-  const LabradorTransitionPlan transition = derive_transition_plan(prev_param);
   if (transition.z_base != base0 || transition.mu != mu || transition.nu != nu ||
       transition.n_next != n_prime || transition.r_next != r_prime) {
     throw std::runtime_error("prover/verifier LaBRADOR transition plan mismatch");
+  }
+  size_t next_kappa = prev_param.kappa;
+  size_t next_kappa1 = prev_param.kappa1;
+  size_t next_kappa2 = prev_param.kappa2;
+  size_t next_schedule_level = 0;
+  if (prev_param.paper_schedule_level != 0) {
+    const auto& next =
+      icicle::labrador::backend_config::PAPER_SCHEDULE[prev_param.paper_schedule_level];
+    next_kappa = next.kappa;
+    next_kappa1 = next.kappa1;
+    next_kappa2 = next.kappa2;
+    next_schedule_level = prev_param.paper_schedule_level + 1;
   }
   LabradorParam recursion_param{
     r_prime,
     n_prime,
     new_ajtai_seed,
-    prev_param.kappa,
-    prev_param.kappa1,
-    prev_param.kappa2,
+    next_kappa,
+    next_kappa1,
+    next_kappa2,
     transition.base1,
     transition.base2,
     transition.base3,
@@ -500,6 +1145,9 @@ LabradorInstance prepare_recursion_instance(
     transition.digits1,
     transition.digits2,
     transition.digits3,
+    !decompose_z,
+    decompose_z ? 0 : nu,
+    next_schedule_level,
   };
   LabradorInstance recursion_instance{recursion_param};
 
@@ -574,12 +1222,14 @@ LabradorInstance prepare_recursion_instance(
     EqualityInstance new_constraint(r_prime, n_prime);
 
     ICICLE_CHECK(preparer.copy_like_z0(new_constraint.phi.data(), &A_t[i * n]));
-    ICICLE_CHECK(preparer.copy_like_z1(new_constraint.phi.data(), &A_t[i * n]));
-    // new_constraint.phi[nu+ j] = base0*new_constraint.phi[nu+ j]
-    Zq base0_scalar = Zq::from(base0);
-    ICICLE_CHECK(scalar_mul_vec(
-      &base0_scalar, reinterpret_cast<const Zq*>(&new_constraint.phi[preparer.z1_begin_idx()]), n * d, {},
-      reinterpret_cast<Zq*>(&new_constraint.phi[preparer.z1_begin_idx()])));
+    if (decompose_z) {
+      ICICLE_CHECK(preparer.copy_like_z1(new_constraint.phi.data(), &A_t[i * n]));
+      // new_constraint.phi[nu+ j] = base0*new_constraint.phi[nu+ j]
+      Zq base0_scalar = Zq::from(base0);
+      ICICLE_CHECK(scalar_mul_vec(
+        &base0_scalar, reinterpret_cast<const Zq*>(&new_constraint.phi[preparer.z1_begin_idx()]), n * d, {},
+        reinterpret_cast<Zq*>(&new_constraint.phi[preparer.z1_begin_idx()])));
+    }
 
     // TODO: think about vectorising
     std::vector<Tq> temp(r * kappa, zero());
@@ -613,13 +1263,15 @@ LabradorInstance prepare_recursion_instance(
     // c_times_phi = c^t * Phi
     ICICLE_CHECK(matmul(challenges_hat.data(), 1, r, final_const.phi.data(), r, n, {}, c_times_phi.data()));
     ICICLE_CHECK(preparer.copy_like_z0(step11_constraint.phi.data(), c_times_phi.data()));
-    Zq b0_zq = Zq::from(base0);
-    // c_times_phi = base0 * c_times_phi
-    scalar_mul_vec(
-      &b0_zq, reinterpret_cast<Zq*>(c_times_phi.data()), c_times_phi.size() * d, {},
-      reinterpret_cast<Zq*>(c_times_phi.data()));
+    if (decompose_z) {
+      Zq b0_zq = Zq::from(base0);
+      // c_times_phi = base0 * c_times_phi
+      scalar_mul_vec(
+        &b0_zq, reinterpret_cast<Zq*>(c_times_phi.data()), c_times_phi.size() * d, {},
+        reinterpret_cast<Zq*>(c_times_phi.data()));
 
-    ICICLE_CHECK(preparer.copy_like_z1(step11_constraint.phi.data(), c_times_phi.data()));
+      ICICLE_CHECK(preparer.copy_like_z1(step11_constraint.phi.data(), c_times_phi.data()));
+    }
 
     ICICLE_CHECK(matmul(challenges_hat.data(), r, 1, challenges_hat.data(), 1, r, {}, c_times_ct.data()));
     // c_times_ct = 2 * c_times_ct
@@ -659,11 +1311,7 @@ LabradorInstance prepare_recursion_instance(
 
   // returns a constant polynomial in Tq
   auto const_poly = [](const Zq& c) {
-    Tq poly;
-    for (size_t j = 0; j < d; j++) {
-      poly.values[j] = c;
-    }
-    return poly;
+    return constant_tq(c);
   };
 
   Tq poly_one = const_poly(Zq::one());
@@ -732,18 +1380,20 @@ LabradorInstance prepare_recursion_instance(
   /* Step 13: <z, z> - sum_ij c_i c_j G_ij == 0 */ {
     EqualityInstance step13_constraint(r_prime, n_prime);
 
-    const Zq b0 = Zq::from(base0);
-    Tq b0_poly = const_poly(b0);
-    Tq b0_sq_poly = const_poly(b0 * b0);
     for (size_t i = 0; i < nu; i++) {
       // a[i,i] = 1
       step13_constraint.a[i * r_prime + i] = poly_one;
-      // a[i+nu, i+nu] = base0^2
-      step13_constraint.a[(i + nu) * r_prime + (i + nu)] = b0_sq_poly;
-      // a[i, i+nu] = base0
-      step13_constraint.a[(i + nu) * r_prime + i] = b0_poly;
-      // a[i+nu, i] = base0
-      step13_constraint.a[i * r_prime + i + nu] = b0_poly;
+      if (decompose_z) {
+        const Zq b0 = Zq::from(base0);
+        Tq b0_poly = const_poly(b0);
+        Tq b0_sq_poly = const_poly(b0 * b0);
+        // a[i+nu, i+nu] = base0^2
+        step13_constraint.a[(i + nu) * r_prime + (i + nu)] = b0_sq_poly;
+        // a[i, i+nu] = base0
+        step13_constraint.a[(i + nu) * r_prime + i] = b0_poly;
+        // a[i+nu, i] = base0
+        step13_constraint.a[i * r_prime + i + nu] = b0_poly;
+      }
     }
 
     std::vector<Tq> temp = extract_symm_part(c_times_ct.data(), r);

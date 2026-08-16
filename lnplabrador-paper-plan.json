@@ -1,0 +1,1011 @@
+{
+  "backend_ring": {
+    "arithmetic_backend": "computational-CRT/NTT-or-correct-coefficient-domain",
+    "degree": 64,
+    "irreducible_factor_count_of_x_degree_plus_1": 2,
+    "log2_modulus": 39.999999999744134,
+    "modulus": 1099511627581,
+    "modulus_hex": "0xffffffff3d",
+    "multiplicative_order_mod_2d": 32,
+    "packed_coefficient_bits": 40,
+    "q_mod_2d": 61
+  },
+  "binary_r1cs": {
+    "configured_capacity": 8388608,
+    "first_level_padding_bits": 2176,
+    "fits_below_capacity": true,
+    "full_input_compiled": false,
+    "full_input_ready": false,
+    "full_section_6_compiler_available": false,
+    "matrices_and_witness": {
+      "A": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      },
+      "B": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      },
+      "C": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      },
+      "witness": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      }
+    },
+    "padded_binary_reduction_witness_bits": 67108864,
+    "padding_model": "binary variables are conservatively padded to equal constraints",
+    "reason_if_not_ready": "TeX has symbolic equations/counts but no numeric A,B,C matrices or witness",
+    "reason_not_compiled": "The current .lab frontend stores dense principal constraints and only implements the reduced conformance profile",
+    "rows_derived_from_tex": 7570304,
+    "schedule_first_level_capacity_bits": 67111040,
+    "variable_count": null
+  },
+  "paper_sections": [
+    "5.3",
+    "5.4",
+    "5.6",
+    "5.7",
+    "6"
+  ],
+  "proof_size": {
+    "canonical_cpp_bit_codec_implemented": true,
+    "composition_auxiliary_bits": {
+      "compact_flow_commitments_fixed_width": 15360,
+      "constant_term_masks_fixed_width": 10240,
+      "fixed_width": 30464,
+      "ideal_entropy": 30463.999999836247,
+      "lnp_projection_response": 4864
+    },
+    "estimate_status": "draft-post-adjustment-root-Hermite-screen-fails",
+    "formula": "LaBRADOR Section 5.7 with Section 5.6 final round",
+    "native_cpp_struct_size_is_not_used": true,
+    "r1cs_reduction_output_bits": {
+      "fixed_width": 5120,
+      "ideal_entropy": 5119.999999967249
+    },
+    "rank_set_sized": "displayed planning ranks, including any screen failures",
+    "recursive_core_bits": {
+      "fixed_width": 552768,
+      "ideal_entropy": 546486.1929729277
+    },
+    "reference_table_recursive_kib": 54.5087,
+    "total_kib": {
+      "fixed_width": 71.1953125,
+      "ideal_entropy": 70.4284903531206
+    }
+  },
+  "schedule": [
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 11286,
+        "applied": false,
+        "auxiliary_capacity_polynomials": 17250,
+        "ordinary_auxiliary_polynomials": 11286
+      },
+      "combined_v": {
+        "g_length": 2964,
+        "h_length": 4446,
+        "length": 11286,
+        "t_length": 3876
+      },
+      "decomposition": {
+        "g": {
+          "base": 102,
+          "digits": 4,
+          "modeled_width": 106663704.890344
+        },
+        "h": {
+          "base": 102,
+          "digits": 6
+        },
+        "t": {
+          "base": 102,
+          "digits": 6
+        },
+        "z": {
+          "base": 152,
+          "base_real": 151.75998054852246,
+          "digits": 2
+        }
+      },
+      "level": 1,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 17,
+          "kappa1": 6,
+          "kappa2": 6
+        },
+        "estimator_certified_minimum": false,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "conservative application of the same root-Hermite fallback, after capacity adjustment",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 17,
+          "kappa1": 6,
+          "kappa2": 6
+        },
+        "unsplit_z_tail_application_is_diagnostic": false
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 17,
+        "kappa1": 6,
+        "kappa2": 6,
+        "method": "norm-dependent-reference-Core-SVP-root-Hermite-1.00444-fallback"
+      },
+      "reference_table": {
+        "output_kib": 4.2046,
+        "recomputed_not_copied": true,
+        "witness_kib": 8192.0
+      },
+      "relation": {
+        "beta": 1048575.9999070168,
+        "n": 27595,
+        "r": 38,
+        "witness_polynomials": 1048610
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 6144,
+          "jl_proof": 10240,
+          "outer_commitments": 30720
+        },
+        "fixed_width_total_bits": 47616,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 5909.7504001518655,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 30719.999999803495
+        },
+        "ideal_entropy_total_bits": 47381.75039988986,
+        "jl_coefficient_width_bits": 23.084962500593225
+      },
+      "target_norm": {
+        "beta_prime": 85930.02992906712,
+        "beta_prime_squared": 7383970043.610371,
+        "gamma1_squared": 379537920.0,
+        "gamma2_squared": 246699648.0,
+        "gamma_squared": 78065325558251.0
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 3258832188.974107,
+        "effective_outer_norm": 354992.6131780073,
+        "inner_norm": 1577675349.4976723,
+        "outer_norm": 171860.05985813425,
+        "remark_5_2_multiplier": 2.065591117977289
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 3450,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 21,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 5,
+          "n_prime": 3450,
+          "nu": 8,
+          "padding_polynomials": 5974
+        },
+        "minimum_n_for_configured_split": 3450,
+        "mu": 5,
+        "nu": 8
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 4074,
+        "applied": false,
+        "auxiliary_capacity_polynomials": 4600,
+        "ordinary_auxiliary_polynomials": 4074
+      },
+      "combined_v": {
+        "g_length": 924,
+        "h_length": 1386,
+        "length": 4074,
+        "t_length": 1764
+      },
+      "decomposition": {
+        "g": {
+          "base": 44,
+          "digits": 4,
+          "modeled_width": 3665867.112043831
+        },
+        "h": {
+          "base": 102,
+          "digits": 6
+        },
+        "t": {
+          "base": 102,
+          "digits": 6
+        },
+        "z": {
+          "base": 73,
+          "base_real": 73.06049544312762,
+          "digits": 2
+        }
+      },
+      "level": 2,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 14,
+          "kappa1": 5,
+          "kappa2": 5
+        },
+        "estimator_certified_minimum": false,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "conservative application of the same root-Hermite fallback, after capacity adjustment",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 14,
+          "kappa1": 5,
+          "kappa2": 5
+        },
+        "unsplit_z_tail_application_is_diagnostic": false
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 14,
+        "kappa1": 5,
+        "kappa2": 5,
+        "method": "norm-dependent-reference-Core-SVP-root-Hermite-1.00444-fallback"
+      },
+      "reference_table": {
+        "output_kib": 4.2037,
+        "recomputed_not_copied": true,
+        "witness_kib": 2235.37
+      },
+      "relation": {
+        "beta": 85930.02992906712,
+        "n": 3450,
+        "r": 21,
+        "witness_polynomials": 72450
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 5120,
+          "jl_proof": 10240,
+          "outer_commitments": 25600
+        },
+        "fixed_width_total_bits": 41472,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4985.81434310195,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 25599.999999836247
+        },
+        "ideal_entropy_total_bits": 41337.81434287269,
+        "jl_coefficient_width_bits": 19.47583727774199
+      },
+      "target_norm": {
+        "beta_prime": 19521.420961130203,
+        "beta_prime_squared": 381085876.3416537,
+        "gamma1_squared": 107421440.0,
+        "gamma2_squared": 76906368.0,
+        "gamma_squared": 524261873096.33636
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 358070670.8787432,
+        "effective_outer_norm": 80646.54749521244,
+        "inner_norm": 173350218.1348362,
+        "outer_norm": 39042.841922260406,
+        "remark_5_2_multiplier": 2.065591117977289
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 1150,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 10,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 4,
+          "n_prime": 1150,
+          "nu": 3,
+          "padding_polynomials": 526
+        },
+        "minimum_n_for_configured_split": 1150,
+        "mu": 4,
+        "nu": 3
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 1445,
+        "applied": false,
+        "auxiliary_capacity_polynomials": 1725,
+        "ordinary_auxiliary_polynomials": 1445
+      },
+      "combined_v": {
+        "g_length": 220,
+        "h_length": 385,
+        "length": 1445,
+        "t_length": 840
+      },
+      "decomposition": {
+        "g": {
+          "base": 29,
+          "digits": 4,
+          "modeled_width": 688160.2248349191
+        },
+        "h": {
+          "base": 53,
+          "digits": 7
+        },
+        "t": {
+          "base": 53,
+          "digits": 7
+        },
+        "z": {
+          "base": 46,
+          "base_real": 45.829609678359354,
+          "digits": 2
+        }
+      },
+      "level": 3,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 12,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "estimator_certified_minimum": false,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "conservative application of the same root-Hermite fallback, after capacity adjustment",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 12,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "unsplit_z_tail_application_is_diagnostic": false
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 12,
+        "kappa1": 4,
+        "kappa2": 4,
+        "method": "norm-dependent-reference-Core-SVP-root-Hermite-1.00444-fallback"
+      },
+      "reference_table": {
+        "output_kib": 3.5613,
+        "recomputed_not_copied": true,
+        "witness_kib": 423.65
+      },
+      "relation": {
+        "beta": 19521.420961130203,
+        "n": 1150,
+        "r": 10,
+        "witness_polynomials": 11500
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4608,
+          "jl_proof": 10240,
+          "outer_commitments": 20480
+        },
+        "fixed_width_total_bits": 35840,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4438.459635337308,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 20479.999999868996
+        },
+        "ideal_entropy_total_bits": 35670.4596351408,
+        "jl_coefficient_width_bits": 17.33773295053636
+      },
+      "target_norm": {
+        "beta_prime": 6701.695499262151,
+        "beta_prime_squared": 44912722.56483057,
+        "gamma1_squared": 13571093.333333334,
+        "gamma2_squared": 5767813.333333333,
+        "gamma_squared": 27057097220.25741
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 78074309.6204665,
+        "effective_outer_norm": 27685.925397328545,
+        "inner_norm": 37797562.615838535,
+        "outer_norm": 13403.390998524303,
+        "remark_5_2_multiplier": 2.065591117977289
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 575,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 7,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 3,
+          "n_prime": 575,
+          "nu": 2,
+          "padding_polynomials": 280
+        },
+        "minimum_n_for_configured_split": 575,
+        "mu": 3,
+        "nu": 2
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 847,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 870,
+        "ordinary_auxiliary_polynomials": 924,
+        "ranks_recertification_required": true,
+        "reason": "ordinary Section 5.4 decomposition does not fit configured n'"
+      },
+      "combined_v": {
+        "g_length": 112,
+        "h_length": 196,
+        "length": 847,
+        "t_length": 539
+      },
+      "decomposition": {
+        "g": {
+          "base": 20,
+          "digits": 4,
+          "modeled_width": 163852.49313200504
+        },
+        "h": {
+          "base": 53,
+          "digits": 7
+        },
+        "t": {
+          "base": 53,
+          "digits": 7
+        },
+        "z": {
+          "base": 32,
+          "base_real": 31.933041810074563,
+          "digits": 2
+        }
+      },
+      "level": 4,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 11,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "estimator_certified_minimum": false,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "conservative application of the same root-Hermite fallback, after capacity adjustment",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 11,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "unsplit_z_tail_application_is_diagnostic": false
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 11,
+        "kappa1": 4,
+        "kappa2": 4,
+        "method": "norm-dependent-reference-Core-SVP-root-Hermite-1.00444-fallback"
+      },
+      "reference_table": {
+        "output_kib": 3.5372,
+        "recomputed_not_copied": true,
+        "witness_kib": 147.75
+      },
+      "relation": {
+        "beta": 6701.695499262151,
+        "n": 575,
+        "r": 7,
+        "witness_polynomials": 4025
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4096,
+          "jl_proof": 10240,
+          "outer_commitments": 20480
+        },
+        "fixed_width_total_bits": 35328,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4043.5898681816248,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 20479.999999868996
+        },
+        "ideal_entropy_total_bits": 35275.58986798512,
+        "jl_coefficient_width_bits": 15.795272922584472
+      },
+      "target_norm": {
+        "beta_prime": 4180.711037939981,
+        "beta_prime_squared": 17478344.782753196,
+        "gamma1_squared": 8313871.999999999,
+        "gamma2_squared": 2936341.333333333,
+        "gamma_squared": 3188803302.102971
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 34197132.76372181,
+        "effective_outer_norm": 17271.279173596875,
+        "inner_norm": 16555615.710242325,
+        "outer_norm": 8361.422075879962,
+        "remark_5_2_multiplier": 2.065591117977289
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 290,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 7,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 3,
+          "n_prime": 288,
+          "nu": 2,
+          "padding_polynomials": 19
+        },
+        "minimum_n_for_configured_split": 288,
+        "mu": 3,
+        "nu": 2
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 868,
+        "applied": false,
+        "auxiliary_capacity_polynomials": 870,
+        "ordinary_auxiliary_polynomials": 868
+      },
+      "combined_v": {
+        "g_length": 84,
+        "h_length": 224,
+        "length": 868,
+        "t_length": 560
+      },
+      "decomposition": {
+        "g": {
+          "base": 45,
+          "digits": 3,
+          "modeled_width": 89788.1238647002
+        },
+        "h": {
+          "base": 32,
+          "digits": 8
+        },
+        "t": {
+          "base": 32,
+          "digits": 8
+        },
+        "z": {
+          "base": 30,
+          "base_real": 29.928881122856797,
+          "digits": 2
+        }
+      },
+      "level": 5,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 10,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "estimator_certified_minimum": false,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "conservative application of the same root-Hermite fallback, after capacity adjustment",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 10,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "unsplit_z_tail_application_is_diagnostic": false
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 10,
+        "kappa1": 4,
+        "kappa2": 4,
+        "method": "norm-dependent-reference-Core-SVP-root-Hermite-1.00444-fallback"
+      },
+      "reference_table": {
+        "output_kib": 3.5191,
+        "recomputed_not_copied": true,
+        "witness_kib": 73.27
+      },
+      "relation": {
+        "beta": 4180.711037939981,
+        "n": 290,
+        "r": 7,
+        "witness_polynomials": 2030
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4096,
+          "jl_proof": 10240,
+          "outer_commitments": 20480
+        },
+        "fixed_width_total_bits": 35328,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3869.3107497286933,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 20479.999999868996
+        },
+        "ideal_entropy_total_bits": 35101.31074953219,
+        "jl_coefficient_width_bits": 15.114495116127708
+      },
+      "target_norm": {
+        "beta_prime": 2818.967848768401,
+        "beta_prime_squared": 7946579.732389947,
+        "gamma1_squared": 3965546.666666666,
+        "gamma2_squared": 1223338.6666666665,
+        "gamma_squared": 1240962479.5754766
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 21660946.01503994,
+        "effective_outer_norm": 11645.669900559107,
+        "inner_norm": 10486560.39741845,
+        "outer_norm": 5637.935697536802,
+        "remark_5_2_multiplier": 2.065591117977289
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 290,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 5,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 3,
+          "n_prime": 290,
+          "nu": 1,
+          "padding_polynomials": 2
+        },
+        "minimum_n_for_configured_split": 290,
+        "mu": 3,
+        "nu": 1
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 305,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 306,
+        "ordinary_auxiliary_polynomials": 630,
+        "ranks_recertification_required": true,
+        "reason": "ordinary Section 5.4 decomposition does not fit configured n'"
+      },
+      "combined_v": {
+        "g_length": 45,
+        "h_length": 60,
+        "length": 305,
+        "t_length": 200
+      },
+      "decomposition": {
+        "g": {
+          "base": 39,
+          "digits": 3,
+          "modeled_width": 57151.40031012785
+        },
+        "h": {
+          "base": 1024,
+          "digits": 4
+        },
+        "t": {
+          "base": 1024,
+          "digits": 4
+        },
+        "z": {
+          "base": 25,
+          "base_real": 24.57595861617373,
+          "digits": 2
+        }
+      },
+      "level": 6,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": false,
+        "displayed_ranks": {
+          "kappa": 10,
+          "kappa1": 3,
+          "kappa2": 3
+        },
+        "estimator_certified_minimum": false,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "conservative application of the same root-Hermite fallback, after capacity adjustment",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": false,
+          "kappa1": false,
+          "kappa2": false
+        },
+        "required_ranks": {
+          "kappa": 13,
+          "kappa1": 6,
+          "kappa2": 6
+        },
+        "unsplit_z_tail_application_is_diagnostic": true
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 10,
+        "kappa1": 3,
+        "kappa2": 3,
+        "method": "norm-dependent-reference-Core-SVP-root-Hermite-1.00444-fallback"
+      },
+      "reference_table": {
+        "output_kib": 4.1388,
+        "recomputed_not_copied": true,
+        "witness_kib": 53.13
+      },
+      "relation": {
+        "beta": 2818.967848768401,
+        "n": 290,
+        "r": 5,
+        "witness_polynomials": 1450
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3840,
+          "jl_proof": 10240,
+          "outer_commitments": 15360
+        },
+        "fixed_width_total_bits": 29952,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3723.7539351004634,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 15359.999999901747
+        },
+        "ideal_entropy_total_bits": 29835.75393493671,
+        "jl_coefficient_width_bits": 14.545913808986185
+      },
+      "target_norm": {
+        "beta_prime": 44928.8057671952,
+        "beta_prime_squared": 2018597587.6663527,
+        "gamma1_squared": 1118846106.6666665,
+        "gamma2_squared": 335544320.0,
+        "gamma_squared": 564207160.9996862
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 289550171.45822096,
+        "effective_outer_norm": 185609.08426809037,
+        "inner_norm": 140177873.993649,
+        "outer_norm": 89857.6115343904,
+        "remark_5_2_multiplier": 2.065591117977289
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 153,
+        "derived_r_prime": 4,
+        "kind": "section-5.6-tail",
+        "minimum_n_for_configured_split": 153,
+        "minimum_n_from_auxiliary": 153,
+        "minimum_n_from_unsplit_z": 145,
+        "mu": 2,
+        "nu": 2,
+        "specialized_final_round_compiler_implemented": true
+      }
+    },
+    {
+      "capacity_adjustment": null,
+      "combined_v": {
+        "g_length": 40,
+        "h_length": 60,
+        "length": 388,
+        "t_length": 288
+      },
+      "decomposition": {
+        "g": {
+          "base": 71,
+          "digits": 4,
+          "modeled_width": 24983868.021081008
+        },
+        "h": {
+          "base": 102,
+          "digits": 6
+        },
+        "t": {
+          "base": 102,
+          "digits": 6
+        },
+        "z": {
+          "base": 115,
+          "base_real": 115.12098184759337,
+          "digits": 2
+        }
+      },
+      "level": 7,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 12,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "estimator_certified_minimum": false,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "conservative application of the same root-Hermite fallback, after capacity adjustment",
+        "outer_commitments_used_by_this_execution": false,
+        "passes": {
+          "kappa": true,
+          "kappa1": null,
+          "kappa2": null
+        },
+        "required_ranks": {
+          "kappa": 12,
+          "kappa1": null,
+          "kappa2": null
+        },
+        "unsplit_z_tail_application_is_diagnostic": false
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 12,
+        "kappa1": 4,
+        "kappa2": 4,
+        "method": "norm-dependent-reference-Core-SVP-root-Hermite-1.00444-fallback"
+      },
+      "reference_table": {
+        "output_kib": 30.7189,
+        "recomputed_not_copied": true,
+        "witness_kib": 40.39
+      },
+      "relation": {
+        "beta": 44928.8057671952,
+        "n": 153,
+        "r": 4,
+        "witness_polynomials": 612
+      },
+      "section_5_7_final_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 7,
+        "fixed_width_bits": {
+          "challenge_seeds": 896,
+          "jl_projection": 4864,
+          "jl_proof": 10240,
+          "outer_commitments": 0
+        },
+        "fixed_width_total_bits": 16000,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 896,
+          "jl_projection": 4746.320792319976,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 0
+        },
+        "ideal_entropy_total_bits": 15882.320792254475,
+        "jl_coefficient_width_bits": 18.540315594999907,
+        "outer_commitments_omitted": true
+      },
+      "section_5_7_final_response": {
+        "fixed_width_bits": {
+          "inner_commitments_t": 122880,
+          "masked_opening_z": 156672,
+          "reduced_garbage_g": 8640,
+          "reduced_garbage_h": 17920
+        },
+        "fixed_width_total_bits": 306112,
+        "g_coefficient_width_bits": 26.366974767932334,
+        "g_polynomials": 5,
+        "h_polynomials": 7,
+        "ideal_entropy_bits": {
+          "inner_commitments_t": 122879.99999921398,
+          "masked_opening_z": 151643.7613255108,
+          "reduced_garbage_g": 8437.431925738347,
+          "reduced_garbage_h": 17919.99999988537
+        },
+        "ideal_entropy_total_bits": 300881.1932503485,
+        "outer_commitments_included": false,
+        "section_5_6_optimized": true,
+        "z_coefficient_width_bits": 15.486495233405924
+      },
+      "section_5_7_prefix_with_outer_commitments_counterfactual": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4864,
+          "jl_proof": 10240,
+          "outer_commitments": 20480
+        },
+        "fixed_width_total_bits": 36096,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4746.320792319976,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 20479.999999868996
+        },
+        "ideal_entropy_total_bits": 35978.32079212347,
+        "jl_coefficient_width_bits": 18.540315594999907
+      },
+      "target_norm": {
+        "beta_prime": 6485.322216217401,
+        "beta_prime_squared": 42059404.24816298,
+        "gamma1_squared": 17055957.333333332,
+        "gamma2_squared": 3329280.0,
+        "gamma_squared": 143320428724.31104
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 90275685.24974622,
+        "effective_outer_norm": 12970.644432434801,
+        "inner_norm": 90275685.24974622,
+        "outer_norm": 12970.644432434801,
+        "remark_5_2_multiplier": 1.0
+      }
+    }
+  ],
+  "schema": "lnplabrador-paper-plan-v1",
+  "security_status": {
+    "capacity_adjusted_levels_requiring_recertification": [
+      4,
+      6
+    ],
+    "capacity_adjusted_rank_fixed_point_screened": false,
+    "concrete_security_claim": false,
+    "exact_composed_tail_soundness_accounted": false,
+    "meets_128_bits_under_simple_union_bound": false,
+    "module_sis_ranks_estimator_certified": false,
+    "paper_per_execution_soundness_bits": 125,
+    "post_adjustment_root_hermite_screen_failing_levels": [
+      6
+    ],
+    "post_adjustment_root_hermite_screen_performed": true,
+    "rank_method": "norm-dependent root-Hermite fallback for planning",
+    "section_5_6_sequential_challenge_error_accounted": false,
+    "seven_execution_union_bound_bits": 122.1926450779424,
+    "seven_execution_union_bound_is_standard_level_accounting_only": true
+  },
+  "warnings": [
+    "Run a current Core-SVP/Module-SIS estimator for every displayed norm before making a security claim.",
+    "Capacity-adjusted levels 4,6 select ranks before the adjustment; jointly re-run the decomposition/rank fixed point and a concrete estimator before using the displayed size or security values as final.",
+    "Displayed ranks fail their conservative post-adjustment root-Hermite screen at level(s) 6; the reported proof size is therefore diagnostic, not a security-certified parameter set.",
+    "The simple seven-execution union bound does not include the separate sequential-challenge error terms of the optimized Section 5.6 tail.",
+    "The full-circuit size is a Section 5.7 estimate; the C++ runner measures its canonical codec only when actual proof vectors exist.",
+    "A full binary-R1CS input cannot be generated until numeric A,B,C matrices and the real witness are supplied."
+  ]
+}
