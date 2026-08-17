@@ -116,8 +116,8 @@ int main(int argc, char** argv)
     }
     std::cout << "Streamed JL exact-equivalence test PASSED (17 rows, 3-row chunks)\n";
 
-    double schedule_beta = std::sqrt(
-      static_cast<double>(icicle::labrador::backend_config::RING_MODULUS));
+    double schedule_beta =
+      icicle::labrador::backend_config::PAPER_INITIAL_BETA;
     const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
     for (size_t level = 1; level < schedule.size(); ++level) {
       const LabradorTransitionPlan transition =
@@ -129,6 +129,17 @@ int main(int argc, char** argv)
         return 1;
       }
       schedule_beta = transition.beta_next;
+    }
+    const long double planned_tail_z_norm =
+      std::sqrt(static_cast<long double>(
+        icicle::labrador::backend_config::CHALLENGE_TAU)) *
+      static_cast<long double>(schedule_beta);
+    const long double planned_tail_bound =
+      section_5_6_tail_msis_bound(planned_tail_z_norm);
+    if (!reference_msis_secure(schedule.back().kappa, planned_tail_bound) ||
+        reference_msis_secure(schedule.back().kappa - 1, planned_tail_bound)) {
+      std::cerr << "Section 5.6 final-rank boundary test failed\n";
+      return 1;
     }
 
     constexpr size_t r = 2;

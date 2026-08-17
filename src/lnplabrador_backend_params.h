@@ -33,28 +33,37 @@ inline constexpr size_t MAX_RUNTIME_POLYNOMIALS = 8388608U;
 inline constexpr size_t MAX_SPLIT_PARTS = 256U;
 inline constexpr size_t EXTRACTION_SLACK_DENOMINATOR = 30U;
 inline constexpr size_t MODULAR_JL_DENOMINATOR = 125U;
+inline constexpr double PAPER_INITIAL_BETA = 8192.000061035156;
 
 struct PaperScheduleEntry {
   size_t n;
   size_t r;
+  double beta;
   size_t kappa;
   size_t kappa1;
   size_t kappa2;
+  uint32_t z_base;
+  uint32_t base1;
+  uint32_t base2;
+  uint32_t base3;
+  size_t digits1;
+  size_t digits2;
+  size_t digits3;
   size_t nu_to_next;
   size_t mu_to_next;
   bool section_5_6_tail;
 };
 
 inline constexpr std::array<PaperScheduleEntry, 7> PAPER_SCHEDULE{{
-  PaperScheduleEntry{27595U, 38U, 17U, 6U, 6U, 8U, 5U, false},
-  PaperScheduleEntry{3450U, 21U, 14U, 5U, 5U, 3U, 4U, false},
-  PaperScheduleEntry{1150U, 10U, 12U, 4U, 4U, 2U, 3U, false},
-  PaperScheduleEntry{575U, 7U, 11U, 4U, 4U, 2U, 3U, false},
-  PaperScheduleEntry{290U, 7U, 10U, 4U, 4U, 1U, 3U, false},
-  PaperScheduleEntry{290U, 5U, 10U, 3U, 3U, 2U, 2U, true},
-  PaperScheduleEntry{153U, 4U, 12U, 4U, 4U, 0U, 0U, false}
+  PaperScheduleEntry{27595U, 38U, 8192.000061035156, 10U, 4U, 4U, 13U, 11U, 6U, 11U, 12U, 5U, 12U, 8U, 5U, false},
+  PaperScheduleEntry{3450U, 21U, 8110.469428771037, 10U, 4U, 4U, 22U, 32U, 13U, 32U, 8U, 4U, 8U, 3U, 4U, false},
+  PaperScheduleEntry{1150U, 10U, 6276.8959768472805, 10U, 3U, 3U, 26U, 16U, 41U, 16U, 10U, 3U, 10U, 2U, 3U, false},
+  PaperScheduleEntry{575U, 7U, 3445.541589554753, 9U, 3U, 3U, 23U, 32U, 8U, 32U, 8U, 5U, 8U, 2U, 3U, false},
+  PaperScheduleEntry{290U, 7U, 2685.2159908524613, 9U, 3U, 3U, 24U, 32U, 8U, 32U, 8U, 5U, 8U, 1U, 3U, false},
+  PaperScheduleEntry{290U, 5U, 2408.5675211574103, 8U, 5U, 5U, 23U, 256U, 204U, 256U, 5U, 2U, 5U, 2U, 2U, true},
+  PaperScheduleEntry{153U, 4U, 22686.18631345616, 10U, 0U, 0U, 82U, 102U, 50U, 102U, 6U, 4U, 6U, 0U, 0U, false}
 }};
 
-inline constexpr char PARAMETER_SHA256[] = "a306928a989f6f3abc6f4fd9d920f1140b2d4262dc845119ed406908d16e3cf5";
+inline constexpr char PARAMETER_SHA256[] = "8e81969f562da7d4b02bf28b8476167d8a73a0ee13bc0cea6e756694750ac23a";
 
 } // namespace icicle::labrador::backend_config

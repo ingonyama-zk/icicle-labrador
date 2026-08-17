@@ -187,9 +187,14 @@ bool LabradorBaseVerifier::_verify_base_proof(const LabradorBaseCaseProof& base_
   ICICLE_CHECK(check_norm_bound(
     reinterpret_cast<const Zq*>(t_tilde.data()), t_low_size * d, eNormType::LInfinity, base1 / 2 + 1, {},
     &t_tilde_small));
-  ICICLE_CHECK(check_norm_bound(
-    reinterpret_cast<const Zq*>(g_tilde.data()), g_low_size * d, eNormType::LInfinity, base2 / 2 + 1, {},
-    &g_tilde_small));
+  // A one-digit Gaussian decomposition has no bounded low limb.  The empty
+  // check is vacuously true, while the ICICLE norm API deliberately rejects a
+  // zero-sized input.
+  if (g_low_size != 0) {
+    ICICLE_CHECK(check_norm_bound(
+      reinterpret_cast<const Zq*>(g_tilde.data()), g_low_size * d, eNormType::LInfinity, base2 / 2 + 1, {},
+      &g_tilde_small));
+  }
   ICICLE_CHECK(check_norm_bound(
     reinterpret_cast<const Zq*>(h_tilde.data()), h_low_size * d, eNormType::LInfinity, base3 / 2 + 1, {},
     &h_tilde_small));
@@ -403,6 +408,13 @@ bool LabradorBaseVerifier::_verify_section_5_6_proof(
     lab_inst.param.op_norm_bound * lab_inst.param.beta * std::sqrt(r), {}, &z_small));
   if (!z_small) {
     std::cout << "Section 5.6 L2 norm check for z failed\n";
+    return false;
+  }
+  const long double final_z_norm = coefficient_l2_norm(z);
+  if (!reference_msis_secure(
+        lab_inst.param.kappa,
+        section_5_6_tail_msis_bound(final_z_norm))) {
+    std::cout << "Section 5.6 folded-z rank check failed\n";
     return false;
   }
 

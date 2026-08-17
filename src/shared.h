@@ -167,6 +167,13 @@ std::vector<Rq> fixed_length_decompose(const std::vector<Rq>& input, uint32_t ba
 /// Exact coefficient L2 norm (using centered representatives).
 long double coefficient_l2_norm(const std::vector<Rq>& input);
 
+/// Root-Hermite/Core-SVP predicate used by the author's `sis_secure` helper.
+/// This is a planning/runtime screen, not a concrete Module-SIS certificate.
+bool reference_msis_secure(size_t rank, long double norm_bound);
+
+/// Section 5.6 post-transcript collision bound 6*T*s_ext*||z||.
+long double section_5_6_tail_msis_bound(long double z_norm);
+
 /// Append a canonical little-endian uint64 value to a byte string.  Used for
 /// the JL retry counter in both the matrix seed and Fiat--Shamir transcript.
 std::vector<std::byte> append_u64_le(const std::byte* seed, size_t seed_len, uint64_t value);

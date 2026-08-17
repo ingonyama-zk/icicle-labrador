@@ -141,6 +141,11 @@ class FullR1CSInputParameters:
     """
 
     constraint_capacity: int = 1 << 23
+    # The Section 6 bound is ||r||^2 <= 2(n_vars + 3k).  Until a concrete
+    # instance supplies ``variable_count``, use the same strict upper bound
+    # for n_vars and k.  The planner adds one before taking the square root so
+    # the public beta remains a strict bound even at the capacity boundary.
+    variable_capacity: int = 1 << 23
     variable_count: Optional[int] = None
     matrix_a_path: Optional[str] = None
     matrix_b_path: Optional[str] = None
@@ -161,21 +166,67 @@ class PaperScheduleLevel:
     level: int
     n: int
     r: int
+    beta: float
     nu_to_next: Optional[int]
     mu_to_next: Optional[int]
     tail_transition: bool
-    reference_witness_kib: float
-    reference_output_kib: float
+    # Joint rank/decomposition fixed point selected by the planner.  Keeping
+    # these values in para1.py (instead of deriving them only in code) makes
+    # the parameter fingerprint, Python frontend and generated C++ backend
+    # agree exactly after future edits.
+    kappa: int
+    kappa1: int
+    kappa2: int
+    z_base: int
+    base1: int
+    base2: int
+    base3: int
+    digits1: int
+    digits2: int
+    digits3: int
+    reference_witness_kib: Optional[float]
+    reference_output_kib: Optional[float]
 
 
 PAPER_SCHEDULE: Tuple[PaperScheduleLevel, ...] = (
-    PaperScheduleLevel(1, 27_595, 38, 8, 5, False, 8_192.00, 4.2046),
-    PaperScheduleLevel(2, 3_450, 21, 3, 4, False, 2_235.37, 4.2037),
-    PaperScheduleLevel(3, 1_150, 10, 2, 3, False, 423.65, 3.5613),
-    PaperScheduleLevel(4, 575, 7, 2, 3, False, 147.75, 3.5372),
-    PaperScheduleLevel(5, 290, 7, 1, 3, False, 73.27, 3.5191),
-    PaperScheduleLevel(6, 290, 5, 2, 2, True, 53.13, 4.1388),
-    PaperScheduleLevel(7, 153, 4, None, None, False, 40.39, 30.7189),
+    PaperScheduleLevel(
+        1, 27_595, 38, 8192.000061035156, 8, 5, False,
+        10, 4, 4, 13, 11, 6, 11, 12, 5, 12,
+        8_192.00, 4.2046,
+    ),
+    PaperScheduleLevel(
+        2, 3_450, 21, 8110.469428771037, 3, 4, False,
+        10, 4, 4, 22, 32, 13, 32, 8, 4, 8,
+        2_235.37, 4.2037,
+    ),
+    PaperScheduleLevel(
+        3, 1_150, 10, 6276.8959768472805, 2, 3, False,
+        10, 3, 3, 26, 16, 41, 16, 10, 3, 10,
+        423.65, 3.5613,
+    ),
+    PaperScheduleLevel(
+        4, 575, 7, 3445.541589554753, 2, 3, False,
+        9, 3, 3, 23, 32, 8, 32, 8, 5, 8,
+        147.75, 3.5372,
+    ),
+    PaperScheduleLevel(
+        5, 290, 7, 2685.2159908524613, 1, 3, False,
+        9, 3, 3, 24, 32, 8, 32, 8, 5, 8,
+        73.27, 3.5191,
+    ),
+    PaperScheduleLevel(
+        6, 290, 5, 2408.5675211574103, 2, 2, True,
+        8, 5, 5, 23, 256, 204, 256, 5, 2, 5,
+        53.13, 4.1388,
+    ),
+    # The joint search returns to the user's n=153 row: its capacity 2*153
+    # holds 305 auxiliary polynomials and yields a substantially smaller
+    # beta_7 than the locally-minimal n=145 alternative.
+    PaperScheduleLevel(
+        7, 153, 4, 22686.18631345616, None, None, False,
+        10, 0, 0, 82, 102, 50, 102, 6, 4, 6,
+        40.39, 30.7189,
+    ),
 )
 
 
@@ -183,17 +234,19 @@ PAPER_SCHEDULE: Tuple[PaperScheduleLevel, ...] = (
 class PaperProofParameters:
     """Tham số cho planner/size audit LaBRADOR Sections 5.3--6.
 
-    Rank được chọn bằng heuristic norm-dependent dùng root-Hermite factor
-    1.00444, tương thích ``LOGDELTA`` của reference
-    implementation.  Đây không thay thế một lần chạy Core-SVP/Module-SIS
-    estimator và vì vậy không tạo concrete-security claim.
+    Rank và decomposition được tìm đồng thời trong box cấu hình, dùng
+    root-Hermite factor 1.00444 tương thích ``LOGDELTA`` của reference
+    implementation.  Candidate đã chọn được ghi thẳng vào từng schedule row
+    để Python/C++ dùng cùng một fixed point.  Đây không thay thế một lần chạy
+    Core-SVP/Module-SIS estimator và vì vậy không tạo concrete-security claim.
     """
 
     schedule: Tuple[PaperScheduleLevel, ...] = field(
         default_factory=lambda: PAPER_SCHEDULE
     )
-    initial_beta_mode: str = "sqrt-modulus-binary-r1cs"
-    max_rank_search: int = 2_048
+    initial_beta_mode: str = "binary-r1cs-capacity-strict"
+    optimizer_rank_limit: int = 64
+    optimizer_max_digits: int = 40
     r1cs_reduction_commitment_rank: int = 2
     constant_term_mask_commitments: int = 4
     lnp_projection_response_bytes: int = 608

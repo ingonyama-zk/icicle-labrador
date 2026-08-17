@@ -435,98 +435,25 @@ def _paper_msis_rank(norm_bound: float) -> int:
     """Reference rank formula used to generate the checked paper schedule."""
 
     backend = BACKEND_SOURCE_PARAMS.backend
-    numerator = math.log2(2.0 * norm_bound) ** 2
+    numerator = math.log2(norm_bound) ** 2
     denominator = (
         4.0
         * backend.degree
         * math.log2(backend.modulus)
         * math.log2(backend.root_hermite_delta)
     )
-    return max(1, math.ceil(numerator / denominator))
+    return max(1, math.floor(numerator / denominator) + 1)
+
+
+def _generated_paper_initial_beta() -> float:
+    return BACKEND_SOURCE_PARAMS.paper_proof.schedule[0].beta
 
 
 def _generated_paper_first_ranks() -> Tuple[int, int, int]:
-    """Recompute the first generated schedule ranks from ``para1.py``."""
+    """Read the committed first schedule ranks from ``para1.py``."""
 
-    parameters = BACKEND_SOURCE_PARAMS
-    backend = parameters.backend
-    challenge = parameters.labrador_challenge
-    row = parameters.paper_proof.schedule[0]
-    beta = math.sqrt(backend.modulus)
-    tau = challenge.unit_coefficients + 4 * challenge.double_coefficients
-    extraction_slack = math.sqrt(
-        backend.security_bits / backend.extraction_slack_denominator
-    )
-
-    coefficient_sd = beta / math.sqrt(row.r * row.n * backend.degree)
-    fold_base = max(
-        2,
-        int(
-            math.floor(
-                math.sqrt(coefficient_sd * math.sqrt(12.0 * row.r * tau)) + 0.5
-            )
-        ),
-    )
-    digits1 = max(
-        2, int(math.floor(math.log(backend.modulus) / math.log(fold_base) + 0.5))
-    )
-    base1 = _ceil_nth_root(backend.modulus, digits1)
-    garbage_width = math.sqrt(24.0 * row.n * backend.degree) * coefficient_sd**2
-    digits2 = max(
-        2,
-        int(
-            math.floor(
-                (math.log(garbage_width) / math.log(fold_base) if garbage_width > 1.0 else 0.0)
-                + 0.5
-            )
-        ),
-    )
-    base2 = max(
-        2,
-        int(
-            math.floor(
-                math.exp(math.log(max(1.0, garbage_width)) / digits2) + 0.5
-            )
-        ),
-    )
-    pair_count = row.r * (row.r + 1) // 2
-    gamma_squared = beta * beta * tau
-
-    for kappa in range(1, parameters.paper_proof.max_rank_search + 1):
-        gamma1_squared = (
-            (base1 * base1 * digits1 / 12.0)
-            * row.r
-            * kappa
-            * backend.degree
-            + (base2 * base2 * digits2 / 12.0)
-            * pair_count
-            * backend.degree
-        )
-        gamma2_squared = (
-            (base1 * base1 * digits1 / 12.0)
-            * pair_count
-            * backend.degree
-        )
-        beta_prime = math.sqrt(
-            2.0 * gamma_squared / (fold_base * fold_base)
-            + gamma1_squared
-            + gamma2_squared
-        )
-        inner_bound = max(
-            8.0
-            * challenge.operator_norm_bound
-            * (fold_base + 1)
-            * beta_prime,
-            2.0 * (fold_base + 1) * beta_prime
-            + 4.0
-            * challenge.operator_norm_bound
-            * extraction_slack
-            * beta,
-        )
-        if kappa >= _paper_msis_rank(inner_bound * extraction_slack):
-            outer_rank = _paper_msis_rank(2.0 * beta_prime * extraction_slack)
-            return kappa, outer_rank, outer_rank
-    raise LabError("cannot derive the first generated paper-schedule ranks")
+    row = BACKEND_SOURCE_PARAMS.paper_proof.schedule[0]
+    return row.kappa, row.kappa1, row.kappa2
 
 
 def _matches_generated_paper_schedule(bundle: RelationBundle) -> bool:
@@ -536,8 +463,7 @@ def _matches_generated_paper_schedule(bundle: RelationBundle) -> bool:
     if bundle.mode != BOUNDARY_PROFILE_MODE or len(schedule) != 7:
         return False
     first = schedule[0]
-    expected_beta = math.sqrt(BACKEND_Q)
-    beta_tolerance = 8.0 * sys.float_info.epsilon * expected_beta
+    expected_beta = _generated_paper_initial_beta()
     if (
         not math.isfinite(bundle.beta)
         or bundle.recursions != 7
@@ -545,12 +471,10 @@ def _matches_generated_paper_schedule(bundle: RelationBundle) -> bool:
         or bundle.r != first.r
         or (bundle.kappa, bundle.kappa1, bundle.kappa2)
         != _generated_paper_first_ranks()
-        or abs(bundle.beta - expected_beta) > beta_tolerance
+        or bundle.beta != expected_beta
     ):
         return False
-    expected_bases = _recursive_decomposition_profile(
-        BACKEND_Q, first.n, first.r, bundle.beta
-    )[:3]
+    expected_bases = (first.base1, first.base2, first.base3)
     return (bundle.base1, bundle.base2, bundle.base3) == expected_bases
 
 
@@ -668,9 +592,20 @@ def validate_bundle(bundle: RelationBundle, *, verify_relation: bool = True) -> 
         raise LabError("recursions exceed the backend limit in para1.py")
 
     if bundle.recursions > 1:
-        expected = _recursive_decomposition_profile(
-            bundle.modulus, bundle.n, bundle.r, bundle.beta
-        )
+        if generated_paper_schedule:
+            first = BACKEND_SOURCE_PARAMS.paper_proof.schedule[0]
+            expected = (
+                first.base1,
+                first.base2,
+                first.base3,
+                first.digits1,
+                first.digits2,
+                first.digits3,
+            )
+        else:
+            expected = _recursive_decomposition_profile(
+                bundle.modulus, bundle.n, bundle.r, bundle.beta
+            )
         if (bundle.base1, bundle.base2, bundle.base3) != expected[:3]:
             raise LabError("recursive bundle bases do not match the Section 5.4 plan")
         digit1, digit2, digit3 = expected[3:]
@@ -1565,12 +1500,10 @@ def run_self_tests() -> None:
     # Low ranks are accepted only for the exact generated seven-level
     # boundary fingerprint. Each nearby generic or malformed profile must
     # continue through the ordinary conservative rank floor.
-    expected_beta = math.sqrt(BACKEND_Q)
-    expected_bases = _recursive_decomposition_profile(
-        BACKEND_Q, first.n, first.r, expected_beta
-    )[:3]
+    expected_beta = _generated_paper_initial_beta()
+    expected_bases = (first.base1, first.base2, first.base3)
     expected_ranks = _generated_paper_first_ranks()
-    assert expected_ranks == (17, 6, 6)
+    assert expected_ranks == (10, 4, 4)
     paper_probe = replace(
         bundle,
         mode=BOUNDARY_PROFILE_MODE,

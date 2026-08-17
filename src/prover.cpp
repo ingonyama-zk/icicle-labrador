@@ -655,10 +655,23 @@ std::pair<LabradorSection56Proof, PartialTranscript> LabradorBaseProver::section
 
   proof.z_hat.resize(n);
   ICICLE_CHECK(matmul(challenges_hat.data(), 1, r, S_hat.data(), r, n, {}, proof.z_hat.data()));
+  std::vector<Rq> final_z(n);
+  ICICLE_CHECK(ntt(
+    proof.z_hat.data(), n, NTTDir::kInverse, {}, final_z.data()));
+  const long double final_z_norm = coefficient_l2_norm(final_z);
+  const long double tail_msis_bound = section_5_6_tail_msis_bound(final_z_norm);
+  if (!reference_msis_secure(lab_inst.param.kappa, tail_msis_bound)) {
+    throw std::runtime_error(
+      "Section 5.6 folded-z norm requires a larger final rank; increase "
+      "kappa or explicitly change the oracle seed (automatic retry is not implemented)");
+  }
   if (SHOW_STEPS) {
     std::cout << "\tSection 5.6 final response: z=" << proof.z_polynomial_count()
               << ", t=" << proof.t_polynomial_count() << ", g=" << proof.g_polynomial_count()
-              << ", h=" << proof.h_polynomial_count() << " polynomials\n";
+              << ", h=" << proof.h_polynomial_count() << " polynomials"
+              << ", ||z||=" << static_cast<double>(final_z_norm)
+              << ", tail-MSIS-bound=" << static_cast<double>(tail_msis_bound)
+              << "\n";
   }
   return {proof, trs};
 }
@@ -750,7 +763,8 @@ std::pair<std::vector<PartialTranscript>, LabradorFinalProof> LabradorProver::pr
     const long double next_norm = coefficient_l2_norm(S_i);
     if (!(next_norm <= static_cast<long double>(transition.beta_next))) {
       throw std::runtime_error(
-        "LaBRADOR heuristic beta' was exceeded; restart with a new transcript or a larger audited bound");
+        "LaBRADOR heuristic beta' was exceeded; explicitly change the oracle seed "
+        "or use a larger audited bound (automatic retry is not implemented)");
     }
     EqualityInstance final_const = base_prover.lab_inst.equality_constraints[0];
     lab_inst_i = prepare_recursion_instance(

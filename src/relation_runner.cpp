@@ -2,6 +2,7 @@
 #include "labrador.h"
 #include "proof_codec.h"
 #include "prover.h"
+#include "sample.h"
 #include "test_helpers.h"
 #include "types.h"
 #include "verifier.h"
@@ -299,13 +300,11 @@ bool matches_generated_paper_schedule(const RelationBundle& bundle)
   const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
   if (schedule.empty()) { return false; }
   const auto& first = schedule.front();
-  const double expected_beta = std::sqrt(static_cast<double>(BACKEND_Q));
-  const double beta_tolerance =
-    8.0 * std::numeric_limits<double>::epsilon() * expected_beta;
+  const double expected_beta = icicle::labrador::backend_config::PAPER_INITIAL_BETA;
   if (!std::isfinite(bundle.beta) || bundle.recursions != schedule.size() || bundle.n != first.n ||
       bundle.r != first.r ||
       bundle.kappa != first.kappa || bundle.kappa1 != first.kappa1 || bundle.kappa2 != first.kappa2 ||
-      std::abs(bundle.beta - expected_beta) > beta_tolerance) {
+      bundle.beta != expected_beta) {
     return false;
   }
 
@@ -388,12 +387,13 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle, std::ostream* a
     size_t kappa1 = bundle.kappa1;
     size_t kappa2 = bundle.kappa2;
     bool section_5_6_final = false;
+    LabradorDecompositionPlan expected_decomposition{};
     if (paper_schedule) {
       const auto& row = schedule[level];
       if (n != row.n || r != row.r) {
         throw std::runtime_error("derived level dimensions do not match the generated paper schedule");
       }
-      const LabradorDecompositionPlan expected_decomposition =
+      expected_decomposition =
         derive_paper_schedule_decomposition(level + 1, beta);
       if (base1 != expected_decomposition.base1 || base2 != expected_decomposition.base2 ||
           base3 != expected_decomposition.base3 || l1 != expected_decomposition.digits1 ||
@@ -410,8 +410,51 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle, std::ostream* a
         r > std::numeric_limits<uint32_t>::max() || !std::isfinite(beta) || beta <= 0.0) {
       throw std::runtime_error("derived recursive level has invalid dimensions or beta");
     }
-    if (kappa == 0 || kappa1 == 0 || kappa2 == 0) {
+    if (kappa == 0 || (!section_5_6_final && (kappa1 == 0 || kappa2 == 0))) {
       throw std::runtime_error("derived recursive level has a zero Ajtai commitment rank");
+    }
+    if (section_5_6_final && (kappa1 != 0 || kappa2 != 0)) {
+      throw std::runtime_error("Section 5.6 final level must omit outer commitment ranks");
+    }
+    LabradorTransitionPlan scheduled_transition{};
+    const bool has_scheduled_transition =
+      paper_schedule && level + 1 < bundle.recursions;
+    if (has_scheduled_transition) {
+      scheduled_transition = derive_paper_schedule_transition(level + 1, beta);
+    }
+    if (paper_schedule) {
+      const long double extraction_slack = std::sqrt(
+        static_cast<long double>(icicle::labrador::backend_config::SECURITY_BITS) /
+        static_cast<long double>(
+          icicle::labrador::backend_config::EXTRACTION_SLACK_DENOMINATOR));
+      if (section_5_6_final) {
+        const long double planned_z_norm = std::sqrt(
+          static_cast<long double>(
+            icicle::labrador::backend_config::CHALLENGE_TAU)) * beta;
+        if (!reference_msis_secure(
+              kappa, section_5_6_tail_msis_bound(planned_z_norm))) {
+          throw std::runtime_error("generated Section 5.6 final rank fails its root-Hermite screen");
+        }
+      } else {
+        if (!has_scheduled_transition) {
+          throw std::runtime_error("non-final generated schedule row has no transition");
+        }
+        const long double reconstruction_factor =
+          schedule[level].section_5_6_tail
+            ? 1.0L
+            : static_cast<long double>(expected_decomposition.z_base) + 1.0L;
+        const long double beta_next = scheduled_transition.beta_next;
+        const long double inner_bound = std::max(
+          8.0L * OP_NORM_BOUND * reconstruction_factor * extraction_slack * beta_next,
+          2.0L * reconstruction_factor * extraction_slack * beta_next +
+            4.0L * OP_NORM_BOUND * extraction_slack * beta);
+        const long double outer_bound = 2.0L * extraction_slack * beta_next;
+        if (!reference_msis_secure(kappa, inner_bound) ||
+            !reference_msis_secure(kappa1, outer_bound) ||
+            !reference_msis_secure(kappa2, outer_bound)) {
+          throw std::runtime_error("generated paper-schedule rank fails its root-Hermite screen");
+        }
+      }
     }
     const size_t r_plus_one = checked_add(r, 1, "r + 1");
     const size_t r_choose_two = checked_mul(r, r_plus_one, "r(r+1)") / 2;
@@ -497,7 +540,7 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle, std::ostream* a
         }
       }
       const LabradorTransitionPlan transition = paper_schedule
-        ? derive_paper_schedule_transition(level + 1, beta)
+        ? scheduled_transition
         : derive_transition_plan(
             n,
             r,
@@ -531,6 +574,75 @@ void validate_runtime_matrix_sizes(const RelationBundle& bundle, std::ostream* a
   }
 }
 
+template <size_t Size>
+std::vector<std::byte> sample_bytes(const std::array<uint8_t, Size>& bytes)
+{
+  std::vector<std::byte> result(Size);
+  for (size_t index = 0; index < Size; ++index) {
+    result[index] = std::byte{bytes[index]};
+  }
+  return result;
+}
+
+RelationBundle make_seven_level_sample_bundle()
+{
+  using namespace labrador_sample7;
+  static_assert(SAMPLE_RING_DEGREE == RING_DEGREE);
+  static_assert(SAMPLE_RING_MODULUS == BACKEND_Q);
+  static_assert(JL_ROWS == icicle::labrador::backend_config::JL_ROWS);
+  static_assert(AGGREGATION_ROUNDS == icicle::labrador::backend_config::AGGREGATION_ROUNDS);
+  static_assert(RECURSIVE_EXECUTIONS <= icicle::labrador::backend_config::MAX_RECURSIONS);
+  static_assert(BETA == icicle::labrador::backend_config::PAPER_INITIAL_BETA);
+  static_assert(KAPPA == icicle::labrador::backend_config::PAPER_SCHEDULE[0].kappa);
+  static_assert(KAPPA1 == icicle::labrador::backend_config::PAPER_SCHEDULE[0].kappa1);
+  static_assert(KAPPA2 == icicle::labrador::backend_config::PAPER_SCHEDULE[0].kappa2);
+  static_assert(BASE1 == icicle::labrador::backend_config::PAPER_SCHEDULE[0].base1);
+  static_assert(BASE2 == icicle::labrador::backend_config::PAPER_SCHEDULE[0].base2);
+  static_assert(BASE3 == icicle::labrador::backend_config::PAPER_SCHEDULE[0].base3);
+
+  RelationBundle bundle;
+  bundle.r = R;
+  bundle.n = N;
+  bundle.beta = BETA;
+  bundle.kappa = KAPPA;
+  bundle.kappa1 = KAPPA1;
+  bundle.kappa2 = KAPPA2;
+  bundle.base1 = BASE1;
+  bundle.base2 = BASE2;
+  bundle.base3 = BASE3;
+  bundle.jl_out = JL_ROWS;
+  bundle.aggregation_rounds = AGGREGATION_ROUNDS;
+  bundle.recursions = RECURSIVE_EXECUTIONS;
+  bundle.mode = std::string(MODE);
+  bundle.source_fingerprint = std::string(SOURCE_FINGERPRINT);
+  bundle.ajtai_seed = sample_bytes(AJTAI_SEED);
+  bundle.oracle_seed = sample_bytes(ORACLE_SEED);
+  for (size_t index = 0; index < PUBLIC_DIGEST.size(); ++index) {
+    bundle.public_digest[index] = std::byte{PUBLIC_DIGEST[index]};
+  }
+
+  bundle.witness.assign(WITNESS_POLYNOMIALS, Rq{});
+  bundle.witness[WITNESS_NONZERO_POLYNOMIAL]
+    .values[WITNESS_NONZERO_COEFFICIENT] = zq_from_centered(WITNESS_NONZERO_VALUE);
+  bundle.witness_norm = WITNESS_L2_NORM;
+
+  // A single zero equality is a concrete valid principal relation.  Its dense
+  // vectors are materialized here because the existing prover API owns dense
+  // EqualityInstance data even though sample.h describes them compactly.
+  CoefficientEquality equality;
+  equality.a.assign(checked_mul(R, R, "sample equality a"), Rq{});
+  equality.phi.assign(WITNESS_POLYNOMIALS, Rq{});
+  equality.b = Rq{};
+  bundle.equality_constraints.push_back(std::move(equality));
+
+  validate_commitment_rank_profile(bundle);
+  validate_runtime_matrix_sizes(bundle);
+  if (!(bundle.witness_norm < static_cast<long double>(bundle.beta))) {
+    throw std::runtime_error("built-in seven-level sample violates its witness norm bound");
+  }
+  return bundle;
+}
+
 RelationBundle make_paper_schedule_audit_bundle()
 {
   const auto& schedule = icicle::labrador::backend_config::PAPER_SCHEDULE;
@@ -540,7 +652,7 @@ RelationBundle make_paper_schedule_audit_bundle()
   RelationBundle bundle;
   bundle.n = first.n;
   bundle.r = first.r;
-  bundle.beta = std::sqrt(static_cast<double>(BACKEND_Q));
+  bundle.beta = icicle::labrador::backend_config::PAPER_INITIAL_BETA;
   bundle.kappa = first.kappa;
   bundle.kappa1 = first.kappa1;
   bundle.kappa2 = first.kappa2;
@@ -929,7 +1041,7 @@ int main(int argc, char* argv[])
       require_generic_rank_rejection(std::move(rank_probe), "the exact ranks");
       RelationBundle beta_probe = audit_bundle;
       beta_probe.beta *= 1.0 + 1e-12;
-      require_generic_rank_rejection(std::move(beta_probe), "beta=sqrt(q)");
+      require_generic_rank_rejection(std::move(beta_probe), "the binary-R1CS beta bound");
       RelationBundle base_probe = audit_bundle;
       ++base_probe.base1;
       require_generic_rank_rejection(std::move(base_probe), "the level-one decomposition bases");
@@ -942,8 +1054,17 @@ int main(int argc, char* argv[])
            "Module-SIS-estimator certified.\n";
       return 0;
     }
+    if (argc == 3 && std::string(argv[2]) == "--sample-seven-level") {
+      // Keep the normal DEVICE positional argument so this exercises exactly
+      // the same backend selection and prover/verifier path as a .lab input.
+      try_load_and_set_backend_device(argc, argv);
+      std::cout
+        << "Running the deterministic seven-execution sample embedded in src/sample.h\n";
+      return run_relation(make_seven_level_sample_bundle()) ? 0 : 1;
+    }
     if (argc != 3) {
       std::cerr << "Usage: " << argv[0] << " DEVICE relation.lab\n"
+                << "       " << argv[0] << " DEVICE --sample-seven-level\n"
                 << "       " << argv[0] << " --audit-paper-schedule\n"
                 << "Example: " << argv[0] << " CPU relation.lab\n";
       return 2;

@@ -133,6 +133,20 @@ def source_fingerprint(tex_bytes: bytes, parameters: Parameters = PARAMS) -> str
     return hashlib.sha256(payload).hexdigest()
 
 
+def _paper_initial_beta(parameters: Parameters = PARAMS) -> float:
+    """Strict Section 6 witness bound for the configured binary-R1CS cap.
+
+    The reduction has ``||r||^2 <= 2(n_vars + 3k)``.  One is added before
+    taking the square root so ``beta`` is strict even when both configured
+    capacities are attained; a concrete input may later replace the two caps
+    by its exact variable/constraint counts.
+    """
+
+    full = parameters.full_r1cs
+    squared_bound = 2 * (full.variable_capacity + 3 * full.constraint_capacity)
+    return math.sqrt(squared_bound + 1)
+
+
 def _is_power_of_two(value: int) -> bool:
     return value > 0 and value & (value - 1) == 0
 
@@ -260,14 +274,20 @@ def validate_parameters(parameters: Parameters = PARAMS) -> None:
     ) != (2, 2947, 4, 6):
         errors.append("boundary dimensions no longer match the supplied TeX")
 
-    if full_r1cs.constraint_capacity <= 0:
-        errors.append("full_r1cs.constraint_capacity must be positive")
+    if full_r1cs.constraint_capacity <= 0 or full_r1cs.variable_capacity <= 0:
+        errors.append("full_r1cs constraint/variable capacities must be positive")
     if full_r1cs.variable_count is not None and full_r1cs.variable_count <= 0:
         errors.append("full_r1cs.variable_count must be positive when set")
-    if paper.initial_beta_mode != "sqrt-modulus-binary-r1cs":
+    if (
+        full_r1cs.variable_count is not None
+        and full_r1cs.variable_count > full_r1cs.variable_capacity
+    ):
+        errors.append("full_r1cs.variable_count exceeds variable_capacity")
+    if paper.initial_beta_mode != "binary-r1cs-capacity-strict":
         errors.append("unsupported paper_proof.initial_beta_mode")
     if min(
-        paper.max_rank_search,
+        paper.optimizer_rank_limit,
+        paper.optimizer_max_digits,
         paper.r1cs_reduction_commitment_rank,
         paper.constant_term_mask_commitments,
         paper.lnp_projection_response_bytes,
@@ -276,14 +296,39 @@ def validate_parameters(parameters: Parameters = PARAMS) -> None:
     if not paper.schedule:
         errors.append("paper_proof.schedule must not be empty")
     for expected_level, row in enumerate(paper.schedule, start=1):
-        if row.level != expected_level or min(row.n, row.r) <= 0:
-            errors.append("paper schedule levels must be consecutive with positive n,r")
+        if (
+            row.level != expected_level
+            or min(row.n, row.r) <= 0
+            or not math.isfinite(row.beta)
+            or row.beta <= 0.0
+        ):
+            errors.append("paper schedule levels must have positive n,r,beta")
+            break
+        if min(
+            row.kappa,
+            row.z_base,
+            row.base1,
+            row.base2,
+            row.base3,
+            row.digits1,
+            row.digits2,
+            row.digits3,
+        ) <= 0:
+            errors.append("paper schedule ranks/bases/digits must be positive")
+            break
+        if row.digits1 < 2 or row.digits2 < 1 or row.digits3 < 2:
+            errors.append("paper schedule decomposition digit counts are invalid")
             break
         is_last = expected_level == len(paper.schedule)
         if is_last:
             if row.nu_to_next is not None or row.mu_to_next is not None:
                 errors.append("last paper schedule row must not have a split")
+            if row.kappa1 != 0 or row.kappa2 != 0:
+                errors.append("Section 5.6 final row must omit both outer ranks")
             continue
+        if row.kappa1 <= 0 or row.kappa2 <= 0:
+            errors.append("non-final paper schedule outer ranks must be positive")
+            break
         if row.nu_to_next is None or row.mu_to_next is None:
             errors.append("each non-final paper schedule row must have nu,mu")
             break
@@ -298,6 +343,9 @@ def validate_parameters(parameters: Parameters = PARAMS) -> None:
                 f"paper level {row.level} split derives r'={derived_r}, expected {next_r}"
             )
             break
+
+    if paper.schedule and paper.schedule[0].beta != _paper_initial_beta(parameters):
+        errors.append("paper level 1 beta must equal the strict binary-R1CS capacity bound")
 
     if executable.bit_width <= 0:
         errors.append("executable bit_width must be positive")
@@ -365,38 +413,23 @@ def backend_header_text(parameters: Parameters = PARAMS) -> str:
     aggregation_rounds = math.ceil(backend.security_bits / math.log2(backend.modulus))
     base_msis_rank = _configured_base_msis_rank(parameters)
     tau = challenge.unit_coefficients + 4 * challenge.double_coefficients
-    beta = math.sqrt(backend.modulus)
     schedule_rows: List[str] = []
     schedule = parameters.paper_proof.schedule
-    for index, row in enumerate(schedule):
-        selected = _select_paper_ranks(
-            n=row.n,
-            r=row.r,
-            beta=beta,
-            recursed_target=index < len(schedule) - 1,
-            parameters=parameters,
-        )
-        if index < len(schedule) - 1:
-            selected = _fit_level_to_configured_transition(
-                selected=selected,
-                row=row,
-                next_row=schedule[index + 1],
-                beta=beta,
-                parameters=parameters,
-            )
+    initial_beta = schedule[0].beta
+    for row in schedule:
         nu = 0 if row.nu_to_next is None else row.nu_to_next
         mu = 0 if row.mu_to_next is None else row.mu_to_next
         schedule_rows.append(
             "  PaperScheduleEntry{"
-            f"{row.n}U, {row.r}U, "
-            f"{selected['ranks']['kappa']}U, "
-            f"{selected['ranks']['kappa1']}U, "
-            f"{selected['ranks']['kappa2']}U, "
+            f"{row.n}U, {row.r}U, {row.beta!r}, "
+            f"{row.kappa}U, {row.kappa1}U, {row.kappa2}U, "
+            f"{row.z_base}U, "
+            f"{row.base1}U, {row.base2}U, {row.base3}U, "
+            f"{row.digits1}U, {row.digits2}U, {row.digits3}U, "
             f"{nu}U, {mu}U, "
             f"{'true' if row.tail_transition else 'false'}"
             "}"
         )
-        beta = selected["target_norm"]["beta_prime"]
     schedule_initializer = ",\n".join(schedule_rows)
     return f"""// Generated by scripts/lnplabrador.py sync-backend from scripts/para1.py.
 // Do not edit this file directly; edit para1.py and run sync-backend.
@@ -433,13 +466,22 @@ inline constexpr size_t MAX_RUNTIME_POLYNOMIALS = {backend.max_runtime_polynomia
 inline constexpr size_t MAX_SPLIT_PARTS = {backend.max_split_parts}U;
 inline constexpr size_t EXTRACTION_SLACK_DENOMINATOR = {backend.extraction_slack_denominator}U;
 inline constexpr size_t MODULAR_JL_DENOMINATOR = {challenge.paper_soundness_bits}U;
+inline constexpr double PAPER_INITIAL_BETA = {initial_beta!r};
 
 struct PaperScheduleEntry {{
   size_t n;
   size_t r;
+  double beta;
   size_t kappa;
   size_t kappa1;
   size_t kappa2;
+  uint32_t z_base;
+  uint32_t base1;
+  uint32_t base2;
+  uint32_t base3;
+  size_t digits1;
+  size_t digits2;
+  size_t digits3;
   size_t nu_to_next;
   size_t mu_to_next;
   bool section_5_6_tail;
@@ -487,6 +529,7 @@ def backend_c_header_text(parameters: Parameters = PARAMS) -> str:
 #define LNPLAB_BACKEND_MAX_PROOF_BYTES UINT64_C({backend.max_proof_bytes})
 #define LNPLAB_BACKEND_OPERATOR_NORM_BOUND {challenge.operator_norm_bound!r}
 #define LNPLAB_BACKEND_CHALLENGE_TAU UINT64_C({tau})
+#define LNPLAB_BACKEND_PAPER_INITIAL_BETA {_paper_initial_beta(parameters)!r}
 #define LNPLAB_BACKEND_PARAMETER_SHA256 "{parameter_fingerprint(parameters)}"
 #define LNPLAB_SOURCE_PARAMETER_FINGERPRINT "{source_parameter_fingerprint}"
 
@@ -661,7 +704,7 @@ def _paper_level_for_rank(
 
     garbage_width = math.sqrt(24.0 * n * degree) * coefficient_sd**2
     t2_real = math.log(garbage_width) / math.log(base) if garbage_width > 1.0 else 0.0
-    t2 = max(2, _round_nearest_nonnegative(t2_real))
+    t2 = max(1, _round_nearest_nonnegative(t2_real))
     base2 = max(
         2,
         _round_nearest_nonnegative(
@@ -709,89 +752,122 @@ def _paper_level_for_rank(
     }
 
 
+def _configured_paper_level(
+    *, row: Any, beta: float, parameters: Parameters
+) -> Dict[str, Any]:
+    """Evaluate one explicit rank/decomposition row from ``para1.py``."""
+
+    if not math.isfinite(beta) or beta <= 0.0:
+        raise LNPLabError("configured paper beta must be finite and positive")
+    if beta != row.beta:
+        raise LNPLabError(
+            f"paper level {row.level} beta={beta!r} does not match its "
+            f"canonical configured value {row.beta!r}"
+        )
+    q = parameters.backend.modulus
+    degree = parameters.backend.degree
+    challenge = parameters.labrador_challenge
+    tau = challenge.unit_coefficients + 4 * challenge.double_coefficients
+    coefficient_sd = beta / math.sqrt(row.r * row.n * degree)
+    base_real = math.sqrt(coefficient_sd * math.sqrt(12.0 * row.r * tau))
+    derived_z_base = max(2, _round_nearest_nonnegative(base_real))
+    if row.z_base != derived_z_base:
+        raise LNPLabError(
+            f"paper level {row.level} z_base={row.z_base} does not match "
+            f"the beta recurrence value {derived_z_base}"
+        )
+    if row.base1 ** row.digits1 < q or row.base3 ** row.digits3 < q:
+        raise LNPLabError(
+            f"paper level {row.level} t/h decomposition does not cover Z_q"
+        )
+
+    garbage_width = math.sqrt(24.0 * row.n * degree) * coefficient_sd**2
+    pair_count = row.r * (row.r + 1) // 2
+    t_length = row.r * row.digits1 * row.kappa
+    g_length = pair_count * row.digits2
+    h_length = pair_count * row.digits3
+    gamma_squared = beta * beta * tau
+    gamma1_squared = (
+        (row.base1 * row.base1 * row.digits1 / 12.0)
+        * row.r
+        * row.kappa
+        * degree
+        + (row.base2 * row.base2 * row.digits2 / 12.0)
+        * pair_count
+        * degree
+    )
+    gamma2_squared = (
+        (row.base3 * row.base3 * row.digits3 / 12.0)
+        * pair_count
+        * degree
+    )
+    beta_prime_squared = (
+        gamma_squared
+        if row.tail_transition
+        else 2.0 * gamma_squared / (row.z_base * row.z_base)
+    ) + gamma1_squared + gamma2_squared
+    return {
+        "coefficient_standard_deviation": coefficient_sd,
+        "decomposition": {
+            "z": {"base_real": base_real, "base": row.z_base, "digits": 2},
+            "t": {"base": row.base1, "digits": row.digits1},
+            "g": {
+                "modeled_width": garbage_width,
+                "base": row.base2,
+                "digits": row.digits2,
+            },
+            "h": {"base": row.base3, "digits": row.digits3},
+        },
+        "combined_v": {
+            "t_length": t_length,
+            "g_length": g_length,
+            "h_length": h_length,
+            "length": t_length + g_length + h_length,
+        },
+        "target_norm": {
+            "gamma_squared": gamma_squared,
+            "gamma1_squared": gamma1_squared,
+            "gamma2_squared": gamma2_squared,
+            "beta_prime_squared": beta_prime_squared,
+            "beta_prime": math.sqrt(beta_prime_squared),
+        },
+        "ranks": {
+            "kappa": row.kappa,
+            "kappa1": row.kappa1,
+            "kappa2": row.kappa2,
+            "method": (
+                "section-5.6-final-reference-tail-root-Hermite-screen"
+                if row.nu_to_next is None
+                else (
+                    "joint-decomposition-rank-search-with-reference-Core-SVP-"
+                    f"root-Hermite-{parameters.backend.root_hermite_delta}-screen"
+                )
+            ),
+            "estimator_certified": False,
+        },
+    }
+
+
 def _heuristic_msis_rank_l2(
     norm_bound: float, parameters: Parameters = PARAMS
 ) -> int:
-    """Norm-dependent reference Core-SVP/root-Hermite fallback."""
+    """Strict ``sis_secure`` rank from the author's reference code.
+
+    ``norm_bound`` is already the collision norm used by the relevant
+    theorem; adding another factor two here would count it twice.
+    """
 
     q = parameters.backend.modulus
     degree = parameters.backend.degree
     delta = parameters.backend.root_hermite_delta
-    if not math.isfinite(norm_bound) or not 0.0 < norm_bound < q / 2.0:
+    if not math.isfinite(norm_bound) or not 1.0 < norm_bound < q:
         raise LNPLabError(
-            "root-Hermite MSIS heuristic requires a finite norm below q/2"
+            "root-Hermite MSIS heuristic requires a finite norm in (1,q)"
         )
-    numerator = math.log2(2.0 * norm_bound) ** 2
+    numerator = math.log2(norm_bound) ** 2
     denominator = 4.0 * degree * math.log2(q) * math.log2(delta)
-    return max(1, math.ceil(numerator / denominator))
-
-
-def _select_paper_ranks(
-    *,
-    n: int,
-    r: int,
-    beta: float,
-    recursed_target: bool,
-    parameters: Parameters,
-) -> Dict[str, Any]:
-    """Select heuristic kappa,kappa1=kappa2 using Theorem 5.1 bounds."""
-
-    challenge = parameters.labrador_challenge
-    extraction_slack = math.sqrt(
-        parameters.backend.security_bits
-        / parameters.backend.extraction_slack_denominator
-    )
-    theorem_multiplier = extraction_slack if recursed_target else 1.0
-    for kappa in range(1, parameters.paper_proof.max_rank_search + 1):
-        level = _paper_level_for_rank(
-            n=n, r=r, beta=beta, kappa=kappa, parameters=parameters
-        )
-        base = level["decomposition"]["z"]["base"]
-        beta_prime = level["target_norm"]["beta_prime"]
-        inner_bound = max(
-            8.0
-            * challenge.operator_norm_bound
-            * (base + 1)
-            * beta_prime,
-            2.0 * (base + 1) * beta_prime
-            + 4.0
-            * challenge.operator_norm_bound
-            * extraction_slack
-            * beta,
-        )
-        effective_inner_bound = inner_bound * theorem_multiplier
-        required_kappa = _heuristic_msis_rank_l2(
-            effective_inner_bound, parameters
-        )
-        if kappa >= required_kappa:
-            break
-    else:
-        raise LNPLabError(
-            "no heuristic inner rank found below paper_proof.max_rank_search"
-        )
-
-    effective_outer_bound = 2.0 * beta_prime * theorem_multiplier
-    outer_rank = _heuristic_msis_rank_l2(effective_outer_bound, parameters)
-    return {
-        **level,
-        "ranks": {
-            "kappa": kappa,
-            "kappa1": outer_rank,
-            "kappa2": outer_rank,
-            "method": (
-                "norm-dependent-reference-Core-SVP-root-Hermite-"
-                f"{parameters.backend.root_hermite_delta}-fallback"
-            ),
-            "estimator_certified": False,
-        },
-        "theorem_5_1_msis_inputs": {
-            "inner_norm": inner_bound,
-            "outer_norm": 2.0 * beta_prime,
-            "remark_5_2_multiplier": theorem_multiplier,
-            "effective_inner_norm": effective_inner_bound,
-            "effective_outer_norm": effective_outer_bound,
-        },
-    }
+    # The reference predicate is strict: log2(B) < RHS(kappa).
+    return max(1, math.floor(numerator / denominator) + 1)
 
 
 def _post_adjustment_rank_screen(
@@ -803,14 +879,7 @@ def _post_adjustment_rank_screen(
     unsplit_z_tail_transition: bool,
     parameters: Parameters,
 ) -> Dict[str, Any]:
-    """Re-screen displayed ranks against the decomposition actually retained.
-
-    Rank selection initially proposes a decomposition.  A configured schedule
-    may subsequently tighten its digit counts to fit the next level, changing
-    beta'.  This diagnostic deliberately does not iterate the mutually
-    dependent rank/decomposition choice; it exposes whether the displayed
-    ranks still pass the same root-Hermite fallback at the resulting norm.
-    """
+    """Screen the retained fixed point with the appropriate execution bound."""
 
     challenge = parameters.labrador_challenge
     extraction_slack = math.sqrt(
@@ -820,19 +889,48 @@ def _post_adjustment_rank_screen(
     theorem_multiplier = extraction_slack if recursed_target else 1.0
     base = selected["decomposition"]["z"]["base"]
     beta_prime = selected["target_norm"]["beta_prime"]
-    inner_bound = max(
-        8.0 * challenge.operator_norm_bound * (base + 1) * beta_prime,
-        2.0 * (base + 1) * beta_prime
-        + 4.0
-        * challenge.operator_norm_bound
-        * extraction_slack
-        * beta,
-    )
-    outer_bound = 2.0 * beta_prime
-    effective_inner_bound = inner_bound * theorem_multiplier
-    effective_outer_bound = outer_bound * theorem_multiplier
+    if section_5_6_final:
+        # The optimized final proof does not use the ordinary (b+1) opening
+        # theorem.  Match the reference implementation's post-transcript
+        # rank check; prover/verifier enforce it again using the actual z.
+        planned_z_norm = math.sqrt(
+            challenge.unit_coefficients + 4 * challenge.double_coefficients
+        ) * beta
+        effective_inner_bound = (
+            6.0
+            * challenge.operator_norm_bound
+            * extraction_slack
+            * planned_z_norm
+        )
+        inner_bound = effective_inner_bound / extraction_slack
+        outer_bound = 0.0
+        effective_outer_bound = 0.0
+    else:
+        reconstruction_factor = 1 if unsplit_z_tail_transition else base + 1
+        effective_inner_bound = max(
+            8.0
+            * challenge.operator_norm_bound
+            * reconstruction_factor
+            * theorem_multiplier
+            * beta_prime,
+            2.0
+            * reconstruction_factor
+            * theorem_multiplier
+            * beta_prime
+            + 4.0
+            * challenge.operator_norm_bound
+            * theorem_multiplier
+            * beta,
+        )
+        inner_bound = effective_inner_bound / theorem_multiplier
+        outer_bound = 2.0 * beta_prime
+        effective_outer_bound = outer_bound * theorem_multiplier
     required_kappa = _heuristic_msis_rank_l2(effective_inner_bound, parameters)
-    required_outer = _heuristic_msis_rank_l2(effective_outer_bound, parameters)
+    required_outer = (
+        None
+        if section_5_6_final
+        else _heuristic_msis_rank_l2(effective_outer_bound, parameters)
+    )
     ranks = selected["ranks"]
     passes: Dict[str, Optional[bool]] = {
         "kappa": ranks["kappa"] >= required_kappa,
@@ -847,27 +945,30 @@ def _post_adjustment_rank_screen(
         "theorem_5_1_msis_inputs": {
             "inner_norm": inner_bound,
             "outer_norm": outer_bound,
-            "remark_5_2_multiplier": theorem_multiplier,
+            "remark_5_2_multiplier": (
+                None if section_5_6_final else theorem_multiplier
+            ),
+            "section_5_6_tail_slack_multiplier": (
+                extraction_slack if section_5_6_final else None
+            ),
             "effective_inner_norm": effective_inner_bound,
             "effective_outer_norm": effective_outer_bound,
         },
         "screen": {
-            "method": (
-                "conservative application of the same root-Hermite fallback, "
-                "after capacity adjustment"
-            ),
+            "method": "execution-specific reference root-Hermite fixed-point screen",
             "estimator_certified_minimum": False,
-            "unsplit_z_tail_application_is_diagnostic": (
-                unsplit_z_tail_transition
+            "unsplit_z_reconstruction_factor": (
+                1 if unsplit_z_tail_transition else None
             ),
+            "final_actual_z_rank_check_required": section_5_6_final,
             "outer_commitments_used_by_this_execution": (
                 not section_5_6_final
             ),
-            "joint_rank_decomposition_fixed_point": False,
+            "joint_rank_decomposition_fixed_point": not section_5_6_final,
             "required_ranks": {
                 "kappa": required_kappa,
-                "kappa1": None if section_5_6_final else required_outer,
-                "kappa2": None if section_5_6_final else required_outer,
+                "kappa1": required_outer,
+                "kappa2": required_outer,
             },
             "displayed_ranks": {
                 "kappa": ranks["kappa"],
@@ -882,6 +983,146 @@ def _post_adjustment_rank_screen(
     }
 
 
+def _search_joint_level_fixed_point(
+    *, row: Any, next_row: Any, beta: float, parameters: Parameters
+) -> Dict[str, Any]:
+    """Exhaust the configured rank/digit box for one recursive transition.
+
+    This is an exhaustive finite-box search for fixed
+    ``(n,r,nu,mu,n')``.  The lexicographic tie-break keeps equal candidates
+    deterministic; it is not a claim of a global optimum over all schedules
+    or parameters outside the configured rank/digit box.
+    """
+
+    if row.mu_to_next is None:
+        raise LNPLabError("joint search requires a non-final schedule row")
+    q = parameters.backend.modulus
+    degree = parameters.backend.degree
+    challenge = parameters.labrador_challenge
+    tau = challenge.unit_coefficients + 4 * challenge.double_coefficients
+    extraction_slack = math.sqrt(
+        parameters.backend.security_bits
+        / parameters.backend.extraction_slack_denominator
+    )
+    capacity = row.mu_to_next * next_row.n
+    pair_count = row.r * (row.r + 1) // 2
+    coefficient_sd = beta / math.sqrt(row.r * row.n * degree)
+    z_base = max(
+        2,
+        _round_nearest_nonnegative(
+            math.sqrt(coefficient_sd * math.sqrt(12.0 * row.r * tau))
+        ),
+    )
+    garbage_width = math.sqrt(24.0 * row.n * degree) * coefficient_sd**2
+    gamma_squared = beta * beta * tau
+    reconstruction_factor = 1 if row.tail_transition else z_base + 1
+    best: Optional[Tuple[float, int, int, int, int, int, int, int]] = None
+    for kappa in range(1, parameters.paper_proof.optimizer_rank_limit + 1):
+        for digits1 in range(2, parameters.paper_proof.optimizer_max_digits + 1):
+            base1 = _ceil_nth_root(q, digits1)
+            for digits2 in range(1, parameters.paper_proof.optimizer_max_digits + 1):
+                auxiliary = (
+                    digits1 * row.r * kappa
+                    + digits2 * pair_count
+                    + digits1 * pair_count
+                )
+                if auxiliary > capacity:
+                    continue
+                base2 = max(
+                    2,
+                    _round_nearest_nonnegative(
+                        math.exp(
+                            math.log(max(1.0, garbage_width)) / digits2
+                        )
+                    ),
+                )
+                gamma1_squared = (
+                    (base1 * base1 * digits1 / 12.0)
+                    * row.r
+                    * kappa
+                    * degree
+                    + (base2 * base2 * digits2 / 12.0)
+                    * pair_count
+                    * degree
+                )
+                gamma2_squared = (
+                    (base1 * base1 * digits1 / 12.0)
+                    * pair_count
+                    * degree
+                )
+                beta_prime_squared = (
+                    gamma_squared
+                    if row.tail_transition
+                    else 2.0 * gamma_squared / (z_base * z_base)
+                ) + gamma1_squared + gamma2_squared
+                beta_prime = math.sqrt(beta_prime_squared)
+                inner_bound = max(
+                    8.0
+                    * challenge.operator_norm_bound
+                    * reconstruction_factor
+                    * extraction_slack
+                    * beta_prime,
+                    2.0
+                    * reconstruction_factor
+                    * extraction_slack
+                    * beta_prime
+                    + 4.0
+                    * challenge.operator_norm_bound
+                    * extraction_slack
+                    * beta,
+                )
+                required_kappa = _heuristic_msis_rank_l2(
+                    inner_bound, parameters
+                )
+                if kappa < required_kappa:
+                    continue
+                outer_rank = _heuristic_msis_rank_l2(
+                    2.0 * extraction_slack * beta_prime, parameters
+                )
+                candidate = (
+                    beta_prime_squared,
+                    auxiliary,
+                    kappa,
+                    outer_rank,
+                    digits1,
+                    digits2,
+                    base1,
+                    base2,
+                )
+                if best is None or candidate < best:
+                    best = candidate
+    if best is None:
+        raise LNPLabError(
+            f"paper level {row.level} has no joint rank/decomposition fixed point"
+        )
+    (
+        beta_prime_squared,
+        auxiliary,
+        kappa,
+        outer_rank,
+        digits1,
+        digits2,
+        base1,
+        base2,
+    ) = best
+    return {
+        "search_rank_range": [1, parameters.paper_proof.optimizer_rank_limit],
+        "search_digit_range": [1, parameters.paper_proof.optimizer_max_digits],
+        "kappa": kappa,
+        "kappa1": outer_rank,
+        "kappa2": outer_rank,
+        "z_base": z_base,
+        "base1": base1,
+        "base2": base2,
+        "base3": base1,
+        "digits1": digits1,
+        "digits2": digits2,
+        "digits3": digits1,
+        "auxiliary_polynomials": auxiliary,
+        "capacity_polynomials": capacity,
+        "beta_prime_squared": beta_prime_squared,
+        "beta_prime": math.sqrt(beta_prime_squared),
+    }
 def _section_5_7_prefix_size(
     *, beta: float, kappa1: int, kappa2: int, parameters: Parameters
 ) -> Dict[str, Any]:
@@ -1004,141 +1245,6 @@ def _configured_path_status(value: Optional[str]) -> Dict[str, Any]:
     }
 
 
-def _fit_level_to_configured_transition(
-    *,
-    selected: Dict[str, Any],
-    row: Any,
-    next_row: Any,
-    beta: float,
-    parameters: Parameters,
-) -> Dict[str, Any]:
-    """Make the current t||g||h vector fit the configured next row.
-
-    The draft table fixes only n and r.  Usually the Section 5.4
-    decomposition already fits.  For the q40 penultimate row it does not, so
-    search fixed t/h and g digit counts exactly as the C++ schedule compiler
-    does.  Ranks are deliberately left unchanged and the report flags that
-    they must be re-certified for the enlarged target norm.
-    """
-
-    if row.nu_to_next is None or row.mu_to_next is None:
-        return selected
-    capacity = row.mu_to_next * next_row.n
-    ordinary_length = selected["combined_v"]["length"]
-    if ordinary_length <= capacity:
-        return {
-            **selected,
-            "capacity_adjustment": {
-                "applied": False,
-                "auxiliary_capacity_polynomials": capacity,
-                "ordinary_auxiliary_polynomials": ordinary_length,
-                "adjusted_auxiliary_polynomials": ordinary_length,
-            },
-        }
-
-    q = parameters.backend.modulus
-    degree = parameters.backend.degree
-    tau = (
-        parameters.labrador_challenge.unit_coefficients
-        + 4 * parameters.labrador_challenge.double_coefficients
-    )
-    r = row.r
-    n = row.n
-    kappa = selected["ranks"]["kappa"]
-    pair_count = r * (r + 1) // 2
-    coefficient_sd = beta / math.sqrt(r * n * degree)
-    garbage_width = math.sqrt(24.0 * n * degree) * coefficient_sd**2
-    z_base = selected["decomposition"]["z"]["base"]
-    gamma_squared = beta * beta * tau
-    best: Optional[Tuple[float, int, int, int, int, int]] = None
-    for digits1 in range(2, 41):
-        base1 = _ceil_nth_root(q, digits1)
-        for digits2 in range(2, 41):
-            t_length = digits1 * r * kappa
-            g_length = digits2 * pair_count
-            h_length = digits1 * pair_count
-            auxiliary = t_length + g_length + h_length
-            if auxiliary > capacity:
-                continue
-            base2 = max(
-                2,
-                _round_nearest_nonnegative(
-                    math.exp(math.log(max(1.0, garbage_width)) / digits2)
-                ),
-            )
-            gamma1_squared = (
-                (base1 * base1 * digits1 / 12.0) * r * kappa * degree
-                + (base2 * base2 * digits2 / 12.0) * pair_count * degree
-            )
-            gamma2_squared = (
-                (base1 * base1 * digits1 / 12.0) * pair_count * degree
-            )
-            beta_prime_squared = (
-                gamma_squared + gamma1_squared + gamma2_squared
-                if row.tail_transition
-                else 2.0 * gamma_squared / (z_base * z_base)
-                + gamma1_squared
-                + gamma2_squared
-            )
-            candidate = (
-                beta_prime_squared,
-                auxiliary,
-                digits1,
-                digits2,
-                base1,
-                base2,
-            )
-            if best is None or candidate < best:
-                best = candidate
-    if best is None:
-        raise LNPLabError(
-            f"paper level {row.level} cannot fit t||g||h in level {next_row.level}"
-        )
-
-    beta_prime_squared, auxiliary, digits1, digits2, base1, base2 = best
-    t_length = digits1 * r * kappa
-    g_length = digits2 * pair_count
-    h_length = digits1 * pair_count
-    adjusted = dict(selected)
-    adjusted["decomposition"] = {
-        **selected["decomposition"],
-        "t": {"base": base1, "digits": digits1},
-        "g": {
-            **selected["decomposition"]["g"],
-            "base": base2,
-            "digits": digits2,
-        },
-        "h": {"base": base1, "digits": digits1},
-    }
-    adjusted["combined_v"] = {
-        "t_length": t_length,
-        "g_length": g_length,
-        "h_length": h_length,
-        "length": auxiliary,
-    }
-    gamma1_squared = (
-        (base1 * base1 * digits1 / 12.0) * r * kappa * degree
-        + (base2 * base2 * digits2 / 12.0) * pair_count * degree
-    )
-    gamma2_squared = (base1 * base1 * digits1 / 12.0) * pair_count * degree
-    adjusted["target_norm"] = {
-        "gamma_squared": gamma_squared,
-        "gamma1_squared": gamma1_squared,
-        "gamma2_squared": gamma2_squared,
-        "beta_prime_squared": beta_prime_squared,
-        "beta_prime": math.sqrt(beta_prime_squared),
-    }
-    adjusted["capacity_adjustment"] = {
-        "applied": True,
-        "reason": "ordinary Section 5.4 decomposition does not fit configured n'",
-        "auxiliary_capacity_polynomials": capacity,
-        "ordinary_auxiliary_polynomials": ordinary_length,
-        "adjusted_auxiliary_polynomials": auxiliary,
-        "ranks_recertification_required": True,
-    }
-    return adjusted
-
-
 def paper_plan_report(
     tex_bytes: bytes, parameters: Parameters = PARAMS
 ) -> Dict[str, Any]:
@@ -1148,25 +1254,102 @@ def paper_plan_report(
     schedule = parameters.paper_proof.schedule
     q = parameters.backend.modulus
     degree = parameters.backend.degree
-    beta = math.sqrt(q)
     derived_levels: List[Dict[str, Any]] = []
 
     for index, row in enumerate(schedule):
-        selected = _select_paper_ranks(
-            n=row.n,
-            r=row.r,
-            beta=beta,
-            recursed_target=index < len(schedule) - 1,
-            parameters=parameters,
+        # Beta is part of the public per-level parameter set.  Do not derive
+        # it independently in Python and C++: their intermediate precision
+        # can otherwise differ by one binary64 ULP and change Fiat--Shamir.
+        beta = row.beta
+        selected = _configured_paper_level(
+            row=row, beta=beta, parameters=parameters
         )
         if index < len(schedule) - 1:
-            selected = _fit_level_to_configured_transition(
-                selected=selected,
+            next_row = schedule[index + 1]
+            formula_beta_prime = selected["target_norm"]["beta_prime"]
+            beta_tolerance = 8.0 * sys.float_info.epsilon * max(
+                1.0, abs(formula_beta_prime), abs(next_row.beta)
+            )
+            if abs(formula_beta_prime - next_row.beta) > beta_tolerance:
+                raise LNPLabError(
+                    f"paper level {row.level} recurrence gives beta'="
+                    f"{formula_beta_prime!r}, not canonical level "
+                    f"{next_row.level} beta={next_row.beta!r}"
+                )
+            selected["target_norm"].update(
+                {
+                    "formula_beta_prime_squared": selected["target_norm"][
+                        "beta_prime_squared"
+                    ],
+                    "formula_beta_prime_binary64": formula_beta_prime,
+                    "beta_prime_squared": next_row.beta * next_row.beta,
+                    "beta_prime": next_row.beta,
+                    "canonical_next_level_beta": next_row.beta,
+                    "formula_matches_canonical_beta": True,
+                }
+            )
+            if row.mu_to_next is None:
+                raise AssertionError("validated schedule lost mu")
+            capacity_polynomials = row.mu_to_next * next_row.n
+            if selected["combined_v"]["length"] > capacity_polynomials:
+                raise LNPLabError(
+                    f"paper level {row.level} optimized auxiliary vector exceeds "
+                    f"level {next_row.level} capacity"
+                )
+            ordinary = _paper_level_for_rank(
+                n=row.n,
+                r=row.r,
+                beta=beta,
+                kappa=row.kappa,
+                parameters=parameters,
+            )
+            selected["capacity_adjustment"] = {
+                "applied": (
+                    ordinary["decomposition"] != selected["decomposition"]
+                ),
+                "reason": "joint rank/decomposition fixed-point optimization",
+                "auxiliary_capacity_polynomials": capacity_polynomials,
+                "ordinary_auxiliary_polynomials": ordinary["combined_v"]["length"],
+                "adjusted_auxiliary_polynomials": selected["combined_v"]["length"],
+                "ranks_recertification_required": False,
+            }
+            optimum = _search_joint_level_fixed_point(
                 row=row,
-                next_row=schedule[index + 1],
+                next_row=next_row,
                 beta=beta,
                 parameters=parameters,
             )
+            configured_tuple = (
+                row.kappa,
+                row.kappa1,
+                row.kappa2,
+                row.z_base,
+                row.base1,
+                row.base2,
+                row.base3,
+                row.digits1,
+                row.digits2,
+                row.digits3,
+            )
+            optimum_tuple = tuple(
+                optimum[key]
+                for key in (
+                    "kappa",
+                    "kappa1",
+                    "kappa2",
+                    "z_base",
+                    "base1",
+                    "base2",
+                    "base3",
+                    "digits1",
+                    "digits2",
+                    "digits3",
+                )
+            )
+            selected["joint_fixed_point_search"] = {
+                **optimum,
+                "configured_choice_is_optimum": configured_tuple == optimum_tuple,
+            }
         post_adjustment = _post_adjustment_rank_screen(
             selected=selected,
             beta=beta,
@@ -1204,6 +1387,7 @@ def paper_plan_report(
                 "post_adjustment_root_hermite_screen"
             ],
             "capacity_adjustment": selected.get("capacity_adjustment"),
+            "joint_fixed_point_search": selected.get("joint_fixed_point_search"),
             "section_5_7_prefix": prefix,
             "reference_table": {
                 "witness_kib": row.reference_witness_kib,
@@ -1211,6 +1395,12 @@ def paper_plan_report(
                 "recomputed_not_copied": True,
             },
         }
+        if index == len(schedule) - 1:
+            level["decomposition"]["usage"] = (
+                "dormant-public-metadata; Section 5.6 sends full-q values and "
+                "uses no outer commitments"
+            )
+            level["target_norm"]["used_as_next_level_beta"] = False
 
         if index < len(schedule) - 1:
             next_row = schedule[index + 1]
@@ -1262,7 +1452,6 @@ def paper_plan_report(
                     ),
                 }
         derived_levels.append(level)
-        beta = selected["target_norm"]["beta_prime"]
 
     final_transition = schedule[-2]
     if final_transition.nu_to_next is None:
@@ -1329,8 +1518,10 @@ def paper_plan_report(
     r1cs_packed = (
         parameters.paper_proof.r1cs_reduction_commitment_rank * ring_packed_bits
     )
-    core_ideal = prefix_ideal + final_size["ideal_entropy_total_bits"] + r1cs_ideal
-    core_packed = prefix_packed + final_size["fixed_width_total_bits"] + r1cs_packed
+    recursive_ideal = prefix_ideal + final_size["ideal_entropy_total_bits"]
+    recursive_packed = prefix_packed + final_size["fixed_width_total_bits"]
+    core_ideal = recursive_ideal + r1cs_ideal
+    core_packed = recursive_packed + r1cs_packed
 
     compact_flow_count = 3 * parameters.boundary.compressing_msis_rank
     compact_ideal = compact_flow_count * ring_ideal_bits
@@ -1354,7 +1545,9 @@ def paper_plan_report(
     actual_constraints = tex["full_binary_r1cs_rows"]
     capacity = parameters.full_r1cs.constraint_capacity
     first_witness_capacity_bits = schedule[0].n * schedule[0].r * degree
-    padded_binary_reduction_bits = 8 * capacity
+    padded_binary_reduction_bits = 2 * (
+        parameters.full_r1cs.variable_capacity + 3 * capacity
+    )
     union_soundness = (
         parameters.labrador_challenge.paper_soundness_bits
         - math.log2(len(schedule))
@@ -1364,12 +1557,24 @@ def paper_plan_report(
         for level in derived_levels
         if (level.get("capacity_adjustment") or {}).get("applied", False)
     ]
+    recertification_levels = [
+        level["level"]
+        for level in derived_levels
+        if (level.get("capacity_adjustment") or {}).get(
+            "ranks_recertification_required", False
+        )
+    ]
     post_adjustment_rank_failures = [
         level["level"]
         for level in derived_levels
         if not level["post_adjustment_root_hermite_screen"][
             "all_displayed_ranks_pass"
         ]
+    ]
+    joint_search_mismatches = [
+        level["level"]
+        for level in derived_levels[:-1]
+        if not level["joint_fixed_point_search"]["configured_choice_is_optimum"]
     ]
     return {
         "schema": "lnplabrador-paper-plan-v1",
@@ -1392,6 +1597,17 @@ def paper_plan_report(
         "binary_r1cs": {
             "rows_derived_from_tex": actual_constraints,
             "configured_capacity": capacity,
+            "configured_variable_capacity": parameters.full_r1cs.variable_capacity,
+            "initial_beta_squared_bound": (
+                2
+                * (
+                    parameters.full_r1cs.variable_capacity
+                    + 3 * parameters.full_r1cs.constraint_capacity
+                )
+                + 1
+            ),
+            "initial_beta": _paper_initial_beta(parameters),
+            "initial_beta_formula": "sqrt(2*(variable_capacity+3*constraint_capacity)+1)",
             "fits_below_capacity": actual_constraints <= capacity,
             "padding_model": "binary variables are conservatively padded to equal constraints",
             "schedule_first_level_capacity_bits": first_witness_capacity_bits,
@@ -1418,14 +1634,21 @@ def paper_plan_report(
         "proof_size": {
             "formula": "LaBRADOR Section 5.7 with Section 5.6 final round",
             "estimate_status": (
-                "draft-post-adjustment-root-Hermite-screen-fails"
-                if post_adjustment_rank_failures
+                "draft-root-Hermite-fixed-point-screen-fails"
+                if post_adjustment_rank_failures or joint_search_mismatches
                 else "draft-until-ranks-are-estimator-certified"
             ),
-            "rank_set_sized": "displayed planning ranks, including any screen failures",
+            "rank_set_sized": (
+                "levels 1-6 finite-box joint rank/decomposition search; "
+                "level 7 specialized Section 5.6 root-Hermite tail screen"
+            ),
             "r1cs_reduction_output_bits": {
                 "ideal_entropy": r1cs_ideal,
                 "fixed_width": r1cs_packed,
+            },
+            "labrador_recursive_bits": {
+                "ideal_entropy": recursive_ideal,
+                "fixed_width": recursive_packed,
             },
             "recursive_core_bits": {
                 "ideal_entropy": core_ideal,
@@ -1451,15 +1674,21 @@ def paper_plan_report(
         "security_status": {
             "concrete_security_claim": False,
             "module_sis_ranks_estimator_certified": False,
-            "capacity_adjusted_rank_fixed_point_screened": False,
+            "capacity_adjusted_rank_fixed_point_screened": True,
+            "configured_finite_box_search_optimum": not joint_search_mismatches,
+            "joint_search_mismatching_levels": joint_search_mismatches,
             "post_adjustment_root_hermite_screen_performed": True,
             "post_adjustment_root_hermite_screen_failing_levels": (
                 post_adjustment_rank_failures
             ),
             "capacity_adjusted_levels_requiring_recertification": (
-                capacity_adjusted_levels
+                recertification_levels
             ),
-            "rank_method": "norm-dependent root-Hermite fallback for planning",
+            "joint_optimized_capacity_levels": capacity_adjusted_levels,
+            "rank_method": (
+                "levels 1-6 joint norm/decomposition root-Hermite fallback; "
+                "level 7 specialized actual-z tail check"
+            ),
             "paper_per_execution_soundness_bits": (
                 parameters.labrador_challenge.paper_soundness_bits
             ),
@@ -1475,18 +1704,34 @@ def paper_plan_report(
                 "norm before making a security claim."
             ),
             (
-                "Capacity-adjusted levels "
+                "Joint-optimized levels "
                 + ",".join(str(level) for level in capacity_adjusted_levels)
-                + " select ranks before the adjustment; jointly re-run the "
-                "decomposition/rank fixed point and a concrete estimator before "
-                "using the displayed size or security values as final."
+                + " use the committed finite-box decomposition/rank choice; run "
+                "a concrete Module-SIS estimator before treating it as final."
+            ),
+            *(
+                [
+                    "Displayed ranks fail their execution-specific root-Hermite "
+                    "screen at level(s) "
+                    + ",".join(str(level) for level in post_adjustment_rank_failures)
+                    + "; the reported proof size is diagnostic only."
+                ]
+                if post_adjustment_rank_failures
+                else []
             ),
             (
-                "Displayed ranks fail their conservative post-adjustment "
-                "root-Hermite screen at level(s) "
-                + ",".join(str(level) for level in post_adjustment_rank_failures)
-                + "; the reported proof size is therefore diagnostic, not a "
-                "security-certified parameter set."
+                "The final rank is accepted only when the prover/verifier "
+                "post-transcript check passes for the actual folded-z norm."
+            ),
+            *(
+                [
+                    "Configured rows differ from the exhaustive joint-search "
+                    "optimum at level(s) "
+                    + ",".join(str(level) for level in joint_search_mismatches)
+                    + "."
+                ]
+                if joint_search_mismatches
+                else []
             ),
             (
                 "The simple seven-execution union bound does not include the "
@@ -2045,28 +2290,35 @@ def run_self_tests(parameters: Parameters = PARAMS) -> None:
     assert paper["binary_r1cs"]["rows_derived_from_tex"] == 7_570_304
     assert paper["binary_r1cs"]["fits_below_capacity"]
     assert paper["binary_r1cs"]["first_level_padding_bits"] >= 0
+    assert math.isclose(
+        paper["binary_r1cs"]["initial_beta"],
+        math.sqrt(8 * (1 << 23) + 1),
+    )
     assert not paper["binary_r1cs"]["full_input_ready"]
-    assert [level["ranks"]["kappa"] for level in paper["schedule"][:5]] == [
-        17,
-        14,
-        12,
-        11,
-        10,
+    assert [level["ranks"]["kappa"] for level in paper["schedule"]] == [
+        10, 10, 10, 9, 9, 8, 10
+    ]
+    assert [level["ranks"]["kappa1"] for level in paper["schedule"]] == [
+        4, 4, 3, 3, 3, 5, 0
     ]
     assert all(
         level["transition"]["configured_capacity_holds"]
         for level in paper["schedule"][:5]
     )
+    assert all(
+        level["joint_fixed_point_search"]["configured_choice_is_optimum"]
+        for level in paper["schedule"][:-1]
+    )
     assert paper["schedule"][5]["capacity_adjustment"]["applied"]
     assert paper["schedule"][5]["post_adjustment_root_hermite_screen"][
         "required_ranks"
-    ] == {"kappa": 13, "kappa1": 6, "kappa2": 6}
-    assert not paper["schedule"][5]["post_adjustment_root_hermite_screen"][
+    ] == {"kappa": 8, "kappa1": 5, "kappa2": 5}
+    assert paper["schedule"][5]["post_adjustment_root_hermite_screen"][
         "all_displayed_ranks_pass"
     ]
     assert paper["security_status"][
         "post_adjustment_root_hermite_screen_failing_levels"
-    ] == [6]
+    ] == []
     assert paper["schedule"][5]["transition"]["configured_capacity_holds"]
     assert paper["schedule"][5]["transition"][
         "specialized_final_round_compiler_implemented"
@@ -2074,7 +2326,8 @@ def run_self_tests(parameters: Parameters = PARAMS) -> None:
     assert paper["schedule"][-1]["section_5_7_final_response"][
         "outer_commitments_included"
     ] is False
-    assert 70.0 < paper["proof_size"]["total_kib"]["ideal_entropy"] < 72.0
+    assert paper["proof_size"]["labrador_recursive_bits"]["fixed_width"] / 8192 == 60.109375
+    assert paper["proof_size"]["total_kib"]["fixed_width"] == 64.453125
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -1,13 +1,19 @@
 #include "shared.h"
 #include "device_vector.h"
 
+#include "icicle/hash/keccak.h"
+#include "icicle/runtime.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -113,7 +119,7 @@ DecompositionChoice choose_decomposition(size_t n, size_t r, double beta)
     t2_real = std::log(garbage_scale) / std::log(static_cast<long double>(z_base));
   }
   const size_t digits2 = std::max<size_t>(
-    2, static_cast<size_t>(std::floor(std::max(0.0L, t2_real) + 0.5L)));
+    1, static_cast<size_t>(std::floor(std::max(0.0L, t2_real) + 0.5L)));
   const long double base2_real = std::pow(std::max(1.0L, garbage_scale), 1.0L / digits2);
   const uint32_t base2 = std::max<uint32_t>(2, round_positive_to_u32(base2_real, "garbage base"));
   return {z_base, digits1, digits2, base1, base2};
@@ -169,72 +175,26 @@ LabradorDecompositionPlan derive_paper_schedule_decomposition(size_t one_based_l
     throw std::invalid_argument("paper schedule level is outside the generated table");
   }
   const auto& row = schedule[one_based_level - 1];
-  LabradorDecompositionPlan ordinary = derive_decomposition_plan(row.n, row.r, beta);
-  if (one_based_level == schedule.size()) { return ordinary; }
-
-  const auto& next = schedule[one_based_level];
-  if (row.nu_to_next == 0 || row.mu_to_next == 0) {
-    throw std::runtime_error("non-final paper schedule row has no split");
+  if (!std::isfinite(beta) || beta != row.beta) {
+    throw std::runtime_error("runtime beta does not match the canonical generated schedule row");
   }
-  const size_t pair_count = checked_mul_size(row.r, checked_add_size(row.r, 1, "schedule r+1"),
-                                             "schedule r(r+1)") /
-                            2;
-  auto auxiliary_length = [&](size_t digits1, size_t digits2) {
-    const size_t t = checked_mul_size(
-      checked_mul_size(digits1, row.r, "scheduled digits1*r"), row.kappa, "scheduled t length");
-    const size_t g = checked_mul_size(digits2, pair_count, "scheduled g length");
-    const size_t h = checked_mul_size(digits1, pair_count, "scheduled h length");
-    return checked_add_size(checked_add_size(t, g, "scheduled t+g"), h, "scheduled auxiliary length");
+  const DecompositionChoice ordinary = choose_decomposition(row.n, row.r, beta);
+  if (ordinary.z_base != row.z_base) {
+    throw std::runtime_error("generated paper schedule z base does not match its beta recurrence");
+  }
+  if (row.base1 < 2 || row.base2 < 2 || row.base3 < 2 ||
+      row.digits1 < 2 || row.digits2 < 1 || row.digits3 < 2) {
+    throw std::runtime_error("generated paper schedule has an invalid explicit decomposition");
+  }
+  return {
+    row.z_base,
+    row.digits1,
+    row.digits2,
+    row.digits3,
+    row.base1,
+    row.base2,
+    row.base3,
   };
-  const size_t capacity = checked_mul_size(row.mu_to_next, next.n, "scheduled auxiliary capacity");
-  if (auxiliary_length(ordinary.digits1, ordinary.digits2) <= capacity) { return ordinary; }
-
-  // The supplied q~=2^40 table fixes n and r but not the decomposition
-  // widths.  In particular its penultimate row is too narrow for the plain
-  // b~=z-base heuristic.  Search the small public digit space and choose the
-  // capacity-valid option with the smallest resulting target norm.
-  constexpr size_t MAX_DIGITS = 40;
-  constexpr long double d = static_cast<long double>(Rq::d);
-  const long double s = static_cast<long double>(beta) /
-                        std::sqrt(static_cast<long double>(row.r) * row.n * d);
-  const long double garbage_scale = std::sqrt(24.0L * row.n * d) * s * s;
-  const long double gamma_squared = static_cast<long double>(beta) * beta * LABRADOR_TAU;
-  long double best_beta_squared = std::numeric_limits<long double>::infinity();
-  size_t best_auxiliary = std::numeric_limits<size_t>::max();
-  LabradorDecompositionPlan best{};
-  bool found = false;
-  for (size_t digits1 = 2; digits1 <= MAX_DIGITS; ++digits1) {
-    const uint32_t base1 = ceil_nth_root_u64(static_cast<uint64_t>(get_q<Zq>()), digits1);
-    for (size_t digits2 = 2; digits2 <= MAX_DIGITS; ++digits2) {
-      const size_t auxiliary = auxiliary_length(digits1, digits2);
-      if (auxiliary > capacity) { continue; }
-      const long double base2_real =
-        std::pow(std::max(1.0L, garbage_scale), 1.0L / static_cast<long double>(digits2));
-      const uint32_t base2 = std::max<uint32_t>(2, round_positive_to_u32(base2_real, "scheduled garbage base"));
-      const long double gamma1_squared =
-        (static_cast<long double>(base1) * base1 * digits1 / 12.0L) * row.r * row.kappa * d +
-        (static_cast<long double>(base2) * base2 * digits2 / 12.0L) * pair_count * d;
-      const long double gamma2_squared =
-        (static_cast<long double>(base1) * base1 * digits1 / 12.0L) * pair_count * d;
-      const long double target_beta_squared =
-        (row.section_5_6_tail
-           ? gamma_squared
-           : 2.0L * gamma_squared /
-               (static_cast<long double>(ordinary.z_base) * ordinary.z_base)) +
-        gamma1_squared + gamma2_squared;
-      if (!found || target_beta_squared < best_beta_squared ||
-          (target_beta_squared == best_beta_squared && auxiliary < best_auxiliary)) {
-        found = true;
-        best_beta_squared = target_beta_squared;
-        best_auxiliary = auxiliary;
-        best = {ordinary.z_base, digits1, digits2, digits1, base1, base2, base1};
-      }
-    }
-  }
-  if (!found) {
-    throw std::runtime_error("paper schedule row cannot fit any supported decomposition in the next level");
-  }
-  return best;
 }
 
 bool poly_vec_eq(const PolyRing* vec1, const PolyRing* vec2, size_t size)
@@ -519,6 +479,102 @@ std::vector<size_t> section_5_6_challenge_order(size_t r, size_t primary_count)
   return order;
 }
 
+// CPU specialization of sum_i weights[i] * conjugate(Q_i).  Q has entries in
+// {-1,0,1}, so multiplying every generated entry modulo q is unnecessary.
+// Accumulate centered weights in int64 (256*q/2 < 2^48), then reduce once per
+// output coefficient.  Partitioning by 256-entry Keccak block gives workers
+// disjoint output ranges and reproduces cpu_get_jl_matrix_rows byte-for-byte.
+bool aggregate_jl_projection_rows_cpu(
+  const std::byte* seed,
+  size_t seed_len,
+  size_t row_size_polynomials,
+  const Zq* weights,
+  size_t total_rows,
+  Tq* output)
+{
+  Device active_device{"CPU"};
+  ICICLE_CHECK(icicle_get_active_device(active_device));
+  if (std::strcmp(active_device.type, "CPU") != 0) { return false; }
+
+  constexpr size_t entries_per_hash = 256;
+  const size_t scalar_row_size =
+    checked_mul_size(row_size_polynomials, Rq::d, "JL scalar row size");
+  const size_t hashes_per_row = ceil_div_size(scalar_row_size, entries_per_hash);
+  if (hashes_per_row != 0 &&
+      total_rows > (static_cast<size_t>(std::numeric_limits<uint32_t>::max()) + 1ULL) / hashes_per_row) {
+    throw std::overflow_error("JL row/hash counter exceeds the canonical uint32 range");
+  }
+
+  std::vector<int64_t> centered_weights(total_rows);
+  for (size_t row = 0; row < total_rows; ++row) {
+    centered_weights[row] = centered_coefficient(weights[row]);
+  }
+
+  Zq* scalar_output = reinterpret_cast<Zq*>(output);
+  const unsigned available_workers = std::max(1U, std::thread::hardware_concurrency());
+  const size_t worker_count =
+    std::min<size_t>({hashes_per_row, static_cast<size_t>(available_workers), 16U});
+  std::vector<std::thread> workers;
+  workers.reserve(worker_count);
+  std::exception_ptr worker_error;
+  std::mutex worker_error_mutex;
+
+  for (size_t worker = 0; worker < worker_count; ++worker) {
+    const size_t block_begin = hashes_per_row * worker / worker_count;
+    const size_t block_end = hashes_per_row * (worker + 1) / worker_count;
+    workers.emplace_back([&, block_begin, block_end]() {
+      try {
+        auto keccak512 = Keccak512::create();
+        std::vector<std::byte> hash_input(seed_len + sizeof(uint32_t));
+        std::memcpy(hash_input.data(), seed, seed_len);
+        std::array<std::byte, 64> hash_output{};
+        HashConfig hash_config{};
+        std::array<int64_t, entries_per_hash> accumulators{};
+
+        for (size_t block = block_begin; block < block_end; ++block) {
+          accumulators.fill(0);
+          for (size_t row = 0; row < total_rows; ++row) {
+            const uint32_t counter = static_cast<uint32_t>(row * hashes_per_row + block);
+            std::memcpy(hash_input.data() + seed_len, &counter, sizeof(counter));
+            ICICLE_CHECK(keccak512.hash(
+              hash_input.data(), hash_input.size(), hash_config, hash_output.data()));
+            const int64_t weight = centered_weights[row];
+            for (size_t entry = 0; entry < entries_per_hash; ++entry) {
+              const size_t scalar_index = block * entries_per_hash + entry;
+              if (scalar_index >= scalar_row_size) { break; }
+              const uint8_t byte = std::to_integer<uint8_t>(hash_output[entry >> 2]);
+              const uint8_t code = (byte >> ((entry & 3U) * 2U)) & 3U;
+              if (code == 1U) {
+                accumulators[entry] += weight;
+              } else if (code == 2U) {
+                accumulators[entry] -= weight;
+              }
+            }
+          }
+
+          for (size_t entry = 0; entry < entries_per_hash; ++entry) {
+            const size_t scalar_index = block * entries_per_hash + entry;
+            if (scalar_index >= scalar_row_size) { break; }
+            const size_t coefficient = scalar_index % Rq::d;
+            const size_t polynomial = scalar_index / Rq::d;
+            const size_t conjugate_coefficient = coefficient == 0 ? 0 : Rq::d - coefficient;
+            const size_t output_index = polynomial * Rq::d + conjugate_coefficient;
+            int64_t value = coefficient == 0 ? accumulators[entry] : -accumulators[entry];
+            value %= static_cast<int64_t>(get_q<Zq>());
+            scalar_output[output_index] = coefficient_from_signed(value);
+          }
+        }
+      } catch (...) {
+        std::lock_guard<std::mutex> lock(worker_error_mutex);
+        if (!worker_error) { worker_error = std::current_exception(); }
+      }
+    });
+  }
+  for (auto& worker : workers) { worker.join(); }
+  if (worker_error) { std::rethrow_exception(worker_error); }
+  return true;
+}
+
 size_t jl_aggregation_chunk_rows(
   size_t row_size_polynomials,
   size_t total_rows,
@@ -543,6 +599,16 @@ void aggregate_jl_projection_rows_ntt(
 {
   if (seed == nullptr || seed_len == 0 || weights == nullptr || output_device == nullptr) {
     throw std::invalid_argument("JL aggregation received a null input");
+  }
+  if (aggregate_jl_projection_rows_cpu(
+        seed, seed_len, row_size_polynomials, weights, total_rows, output_device)) {
+    ICICLE_CHECK(ntt(
+      output_device,
+      row_size_polynomials,
+      NTTDir::kForward,
+      {},
+      output_device));
+    return;
   }
   const size_t chunk_rows =
     jl_aggregation_chunk_rows(row_size_polynomials, total_rows, scratch_bytes);
@@ -766,7 +832,7 @@ std::pair<size_t, size_t> compute_mu_nu(size_t n, size_t m)
 
 std::vector<Rq> fixed_length_decompose(const std::vector<Rq>& input, uint32_t base, size_t digits)
 {
-  if (input.empty() || base < 2 || digits < 2) {
+  if (input.empty() || base < 2 || digits == 0) {
     throw std::invalid_argument("invalid fixed-length decomposition parameters");
   }
   std::vector<Rq> output(input.size() * digits, zero());
@@ -805,6 +871,38 @@ long double coefficient_l2_norm(const std::vector<Rq>& input)
   return std::sqrt(squared);
 }
 
+bool reference_msis_secure(size_t rank, long double norm_bound)
+{
+  if (rank == 0 || !std::isfinite(norm_bound) || norm_bound < 0.0L) {
+    return false;
+  }
+  if (norm_bound <= 1.0L) { return true; }
+  const long double log_q = std::log2(static_cast<long double>(get_q<Zq>()));
+  const long double log_delta =
+    std::log2(icicle::labrador::backend_config::ROOT_HERMITE_DELTA);
+  const long double exponent = std::min(
+    log_q,
+    2.0L *
+      std::sqrt(log_q * log_delta * static_cast<long double>(Rq::d)) *
+      std::sqrt(static_cast<long double>(rank)));
+  return std::log2(norm_bound) < exponent;
+}
+
+long double section_5_6_tail_msis_bound(long double z_norm)
+{
+  if (!std::isfinite(z_norm) || z_norm < 0.0L) {
+    throw std::invalid_argument("invalid Section 5.6 folded-z norm");
+  }
+  const long double extraction_slack = std::sqrt(
+    static_cast<long double>(icicle::labrador::backend_config::SECURITY_BITS) /
+    static_cast<long double>(
+      icicle::labrador::backend_config::EXTRACTION_SLACK_DENOMINATOR));
+  return 6.0L *
+         static_cast<long double>(
+           icicle::labrador::backend_config::CHALLENGE_OPERATOR_NORM_BOUND) *
+         extraction_slack * z_norm;
+}
+
 std::vector<std::byte> append_u64_le(const std::byte* seed, size_t seed_len, uint64_t value)
 {
   std::vector<std::byte> result(seed, seed + seed_len);
@@ -828,7 +926,7 @@ LabradorTransitionPlan derive_transition_plan(
   double beta)
 {
   if (n == 0 || r == 0 || kappa == 0 || base1 < 2 || base2 < 2 || base3 < 2 ||
-      digits1 < 2 || digits2 < 2 || digits3 < 2 || !std::isfinite(beta) || beta <= 0.0) {
+      digits1 < 2 || digits2 < 1 || digits3 < 2 || !std::isfinite(beta) || beta <= 0.0) {
     throw std::invalid_argument("invalid LaBRADOR transition input");
   }
   const DecompositionChoice current_choice = choose_decomposition(n, r, beta);
@@ -967,6 +1065,19 @@ LabradorTransitionPlan derive_paper_schedule_transition(
     }
     plan.beta_next = static_cast<double>(std::sqrt(beta_squared));
   }
+
+  const double computed_beta_next = plan.beta_next;
+  const double beta_tolerance =
+    8.0 * std::numeric_limits<double>::epsilon() *
+    std::max({1.0, std::abs(computed_beta_next), std::abs(next.beta)});
+  if (!std::isfinite(computed_beta_next) ||
+      std::abs(computed_beta_next - next.beta) > beta_tolerance) {
+    throw std::runtime_error(
+      "generated paper schedule beta does not match the Section 5.4 recurrence");
+  }
+  // Canonicalize the public binary64 value.  This prevents Python binary64
+  // and C++ long-double intermediates from producing different transcripts.
+  plan.beta_next = next.beta;
 
   plan.mu = current.mu_to_next;
   plan.nu = current.nu_to_next;
