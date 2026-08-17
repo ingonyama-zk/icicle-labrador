@@ -547,6 +547,7 @@ namespace icicle {
       }();                                                                                                             \
     }
 
+#ifdef RING_HAS_RNS
   // for RNS type
   using ringRnsVectorReduceOpImpl = std::function<eIcicleError(
     const Device& device, const scalar_rns_t* vec_a, uint64_t size, const VecOpsConfig& config, scalar_rns_t* output)>;
@@ -726,6 +727,7 @@ namespace icicle {
         return true;                                                                                                   \
       }();                                                                                                             \
     }
+#endif // RING_HAS_RNS
 
   using ringPolyRingMatrixOpImpl = std::function<eIcicleError(
     const Device& device,
@@ -745,6 +747,7 @@ namespace icicle {
       }();                                                                                                             \
     }
 
+#ifdef RING_HAS_RNS
   using ringRnsBitReverseOpImpl = std::function<eIcicleError(
     const Device& device, const scalar_rns_t* input, uint64_t size, const VecOpsConfig& config, scalar_rns_t* output)>;
 
@@ -819,6 +822,7 @@ namespace icicle {
         return true;                                                                                                   \
       }();                                                                                                             \
     }
+#endif // RING_HAS_RNS
 
   using balancedDecompositionImpl = std::function<eIcicleError(
     const Device& device,

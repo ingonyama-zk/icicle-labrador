@@ -30,6 +30,7 @@ struct LabradorBaseVerifier {
       : lab_inst(lab_inst), trs(), oracle(create_oracle_seed(oracle_seed, oracle_seed_len, lab_inst))
   {
     trs.prover_msg = prover_msg;
+    validate_prover_message_shape();
     create_transcript();
   }
 
@@ -39,7 +40,23 @@ struct LabradorBaseVerifier {
       : lab_inst(lab_inst), trs(), oracle(oracle)
   {
     trs.prover_msg = prover_msg;
+    validate_prover_message_shape();
     create_transcript();
+  }
+
+  /// Constructor for the optimized Section 5.6 tail.  Its first
+  /// Fiat--Shamir message is the raw t vector in `proof`, and its c_i
+  /// challenges are derived only after part_verify has aggregated Phi and a.
+  LabradorBaseVerifier(
+    const LabradorInstance& lab_inst,
+    const BaseProverMessages& prover_msg,
+    const LabradorSection56Proof& proof,
+    const Oracle& oracle)
+      : lab_inst(lab_inst), trs(), oracle(oracle)
+  {
+    trs.prover_msg = prover_msg;
+    validate_section_5_6_message_shape(proof);
+    create_section_5_6_transcript_prefix(proof);
   }
 
   /// @brief Verifies transcript messages are valid and also aggregates the `lab_inst` into the correct final constraint
@@ -55,6 +72,9 @@ struct LabradorBaseVerifier {
   /// @return True if verification passes
   /// @note This modifies `lab_inst`
   bool fully_verify(const LabradorBaseCaseProof& base_proof);
+
+  /// Verify the optimized no-outer-commitment final execution.
+  bool fully_verify(const LabradorSection56Proof& final_proof);
 
   /// Performs the aggregation of the const-zero constraints
   /// @note This *modifies* the `lab_inst`. It takes num_aggregation_rounds many random
@@ -72,6 +92,13 @@ struct LabradorBaseVerifier {
   /// instance and oracle.
   /// @return True if verification passes
   bool _verify_base_proof(const LabradorBaseCaseProof& base_proof) const;
+
+  bool _verify_section_5_6_proof(const LabradorSection56Proof& final_proof);
+
+  /// Reject malformed message vectors before hashing or matrix operations.
+  void validate_prover_message_shape() const;
+  void validate_section_5_6_message_shape(const LabradorSection56Proof& final_proof) const;
+  void create_section_5_6_transcript_prefix(const LabradorSection56Proof& final_proof);
 };
 
 /// @brief Struct that performs the Verifier actions for the entire Labrador protocol, counterpart to LabradorProver
@@ -83,7 +110,7 @@ struct LabradorVerifier {
   /// BaseProverMessages sent by the prover in each recursive round of the protocol (NUM_REC long)
   const std::vector<BaseProverMessages> prover_msgs;
   /// Base case proof provided by the prover for the last round
-  LabradorBaseCaseProof final_proof;
+  LabradorFinalProof final_proof;
   /// Number of times the Labrador protocol recurses
   size_t NUM_REC;
 
@@ -92,7 +119,7 @@ struct LabradorVerifier {
   LabradorVerifier(
     const LabradorInstance& lab_inst,
     const std::vector<BaseProverMessages>& prover_msgs,
-    const LabradorBaseCaseProof& final_proof,
+    const LabradorFinalProof& final_proof,
     const std::byte* oracle_seed,
     size_t oracle_seed_len,
     size_t NUM_REC)
@@ -100,6 +127,7 @@ struct LabradorVerifier {
         oracle(create_oracle_seed(oracle_seed, oracle_seed_len, lab_inst)), NUM_REC(NUM_REC)
   {
     if (prover_msgs.size() != NUM_REC) { throw std::invalid_argument("prover_msgs.size() must equal NUM_REC"); }
+    if (NUM_REC == 0) { throw std::invalid_argument("NUM_REC must be at least one"); }
   }
   /// Verifies whether the proof given by the Prover is valid or not
   bool verify();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "labrador.h"
+#include "lnplabrador_backend_params.h"
 #include "utils.h"
 #include <cstddef>
 #include <stdexcept>
@@ -12,7 +13,14 @@ using namespace icicle::labrador;
  *  Constraint descriptions
  * ====================================================================*/
 
-constexpr uint64_t OP_NORM_BOUND = 15;
+constexpr uint64_t OP_NORM_BOUND =
+  icicle::labrador::backend_config::CHALLENGE_OPERATOR_NORM_BOUND;
+static_assert(
+  icicle::labrador::backend_config::CHALLENGE_ZERO_COEFFICIENTS +
+      icicle::labrador::backend_config::CHALLENGE_UNIT_COEFFICIENTS +
+      icicle::labrador::backend_config::CHALLENGE_DOUBLE_COEFFICIENTS ==
+    icicle::labrador::backend_config::RING_DEGREE,
+  "Challenge weights generated from para1.py must sum to the ring degree");
 
 /// @brief Struct for storing an equality instance of the form:
 /// \sum_ij a[i,j]<s[i], s[j]> + \sum_i <phi[i], s[i]> + b = 0
@@ -107,10 +115,18 @@ struct LabradorParam {
   /// Base for decomposing h
   uint32_t base3;
 
+  /// Fixed decomposition lengths.  LaBRADOR chooses these lengths from the
+  /// coefficient-width analysis in Section 5.4; they are not, in general,
+  /// the number of digits required to represent an arbitrary element of Zq.
+  /// In particular, the last digit is an unrestricted high part.
+  size_t digits1;
+  size_t digits2;
+  size_t digits3;
+
   /// JL projection parameters
 
   /// Output dimension for Johnson-Lindenstrauss projection (typically 256)
-  size_t JL_out = 256;
+  size_t JL_out = icicle::labrador::backend_config::JL_ROWS;
 
   /// Norm bounds
   /// Witness norm bound
@@ -119,7 +135,22 @@ struct LabradorParam {
   uint64_t op_norm_bound = OP_NORM_BOUND;
 
   /// Number of times aggregation is repeated for constant zero constraints
-  size_t num_aggregation_rounds = std::ceil(128.0 / std::log2(get_q<Zq>())); // = 3
+  size_t num_aggregation_rounds = icicle::labrador::backend_config::AGGREGATION_ROUNDS;
+
+  /// The final recursive instance uses the Section 5.6 protocol: its masked
+  /// opening was not decomposed by the preceding transition and no outer
+  /// commitment matrices are needed.
+  bool section_5_6_final = false;
+
+  /// Number of leading witness rows that contain the (un-decomposed) masked
+  /// opening in a Section 5.6 final instance.  The remaining rows contain the
+  /// concatenated t || g || h vector from the preceding execution.
+  size_t final_primary_count = 0;
+
+  /// One-based row in backend_config::PAPER_SCHEDULE.  Zero selects the
+  /// adaptive Section 5.4 planner.  The generated seven-level parameters are
+  /// activated only when the initial public dimensions/ranks match row one.
+  size_t paper_schedule_level = 0;
 
   // constructors
 
@@ -133,10 +164,34 @@ struct LabradorParam {
     uint32_t base1,
     uint32_t base2,
     uint32_t base3,
-    double beta)
+    double beta,
+    size_t digits1 = 0,
+    size_t digits2 = 0,
+    size_t digits3 = 0,
+    bool section_5_6_final = false,
+    size_t final_primary_count = 0,
+    size_t paper_schedule_level = 0)
       : r(r), n(n), ajtai_seed(ajtai_seed), kappa(kappa), kappa1(kappa1), kappa2(kappa2), A(), B(), C(), D(),
-        base1(base1), base2(base2), base3(base3), beta(beta)
+        base1(base1), base2(base2), base3(base3),
+        digits1(
+          digits1 == 0 ? icicle::balanced_decomposition::compute_nof_digits<Zq>(base1) : digits1),
+        digits2(
+          digits2 == 0 ? icicle::balanced_decomposition::compute_nof_digits<Zq>(base2) : digits2),
+        digits3(
+          digits3 == 0 ? icicle::balanced_decomposition::compute_nof_digits<Zq>(base3) : digits3),
+        beta(beta), section_5_6_final(section_5_6_final), final_primary_count(final_primary_count),
+        paper_schedule_level(paper_schedule_level)
   {
+    if (section_5_6_final && (final_primary_count == 0 || final_primary_count > r)) {
+      throw std::invalid_argument("invalid Section 5.6 primary witness count");
+    }
+    if (!section_5_6_final && final_primary_count != 0) {
+      throw std::invalid_argument("final_primary_count requires a Section 5.6 final instance");
+    }
+    if (paper_schedule_level > icicle::labrador::backend_config::PAPER_SCHEDULE.size()) {
+      throw std::invalid_argument("paper_schedule_level exceeds the generated schedule");
+    }
+
     std::vector<std::byte> seed_A(ajtai_seed), seed_B(ajtai_seed), seed_C(ajtai_seed), seed_D(ajtai_seed);
     seed_A.push_back(std::byte('0'));
     seed_B.push_back(std::byte('1'));
@@ -144,18 +199,25 @@ struct LabradorParam {
     seed_D.push_back(std::byte('3'));
 
     A.resize(n * kappa);
-    B.resize(t_len() * kappa1);
-    C.resize(g_len() * kappa1);
-    D.resize(h_len() * kappa2);
+    if (!section_5_6_final) {
+      B.resize(t_len() * kappa1);
+      C.resize(g_len() * kappa1);
+      D.resize(h_len() * kappa2);
+    }
 
     // TODO: is this correct?
     VecOpsConfig async_config = default_vec_ops_config();
     async_config.is_async = true;
 
-    ICICLE_CHECK(random_sampling(A.size(), true, seed_A.data(), seed_A.size(), async_config, A.data()));
-    ICICLE_CHECK(random_sampling(B.size(), true, seed_B.data(), seed_B.size(), async_config, B.data()));
-    ICICLE_CHECK(random_sampling(C.size(), true, seed_C.data(), seed_C.size(), async_config, C.data()));
-    ICICLE_CHECK(random_sampling(D.size(), true, seed_D.data(), seed_D.size(), async_config, D.data()));
+    // Avoid ICICLE's structured fast mode (powers of one element).  Slow mode
+    // uses independent XOF blocks, but its reduction-to-Zq bias still needs a
+    // separate security audit before this can be called a uniform CRS.
+    ICICLE_CHECK(random_sampling(A.size(), false, seed_A.data(), seed_A.size(), async_config, A.data()));
+    if (!section_5_6_final) {
+      ICICLE_CHECK(random_sampling(B.size(), false, seed_B.data(), seed_B.size(), async_config, B.data()));
+      ICICLE_CHECK(random_sampling(C.size(), false, seed_C.data(), seed_C.size(), async_config, C.data()));
+      ICICLE_CHECK(random_sampling(D.size(), false, seed_D.data(), seed_D.size(), async_config, D.data()));
+    }
 
     ICICLE_CHECK(icicle_device_synchronize());
   }
@@ -165,22 +227,19 @@ struct LabradorParam {
   /* helper lengths for base proof vectors --------------------------------*/
   size_t t_len() const
   {
-    size_t l1 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base1);
-    return l1 * r * kappa;
+    return digits1 * r * kappa;
   }
 
   size_t g_len() const
   {
-    size_t l2 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base2);
     size_t r_choose_2 = (r * (r + 1)) / 2;
-    return (l2 * r_choose_2);
+    return (digits2 * r_choose_2);
   }
 
   size_t h_len() const
   {
-    size_t l3 = icicle::balanced_decomposition::compute_nof_digits<Zq>(base3);
     size_t r_choose_2 = (r * (r + 1)) / 2;
-    return (l3 * r_choose_2);
+    return (digits3 * r_choose_2);
   }
 };
 
@@ -259,7 +318,7 @@ struct BaseProverMessages {
 
   BaseProverMessages() = default;
 
-  size_t proof_size()
+  size_t proof_size() const
   {
     return sizeof(Zq) * (u1.size() * Tq::d + p.size() + b_agg.size() * Tq::d + u2.size() * Tq::d) + sizeof(size_t);
   }
@@ -278,7 +337,7 @@ struct PartialTranscript {
 
   PartialTranscript() = default;
 
-  inline size_t proof_size() { return prover_msg.proof_size(); }
+  inline size_t proof_size() const { return prover_msg.proof_size(); }
 };
 
 /// @brief Struct to hold the proof for the base case
@@ -306,4 +365,66 @@ struct LabradorBaseCaseProof {
 
   /// @return Proof size in Bytes
   size_t size() const { return (z_hat.size() + t.size() + g.size() + h.size()) * Rq::d * sizeof(Zq); }
+};
+
+/// Final response for the optimized last execution from Section 5.6.
+///
+/// Challenges are sampled in the public order
+///   auxiliary rows [primary_count, r), then primary rows [0, primary_count).
+/// `g_cross[i]` and `g_diagonal[i]` precede the challenge for primary row i.
+/// `h_diagonal[round]` precedes every challenge and `h_cross[round - 1]`
+/// precedes every challenge after the first.  Thus this response contains
+/// 2*primary_count + 1 g polynomials and 2*r - 1 h polynomials.
+struct LabradorSection56Proof {
+  size_t primary_count = 0;
+  std::vector<Tq> z_hat;
+  /// Raw inner commitments t_i=A*s_i; unlike an ordinary execution these are
+  /// opened directly and are not decomposed for an outer commitment.
+  std::vector<Rq> t;
+  Rq g0 = zero();
+  std::vector<Rq> g_cross, g_diagonal;
+  std::vector<Rq> h_cross, h_diagonal;
+
+  size_t z_polynomial_count() const { return z_hat.size(); }
+  size_t t_polynomial_count() const { return t.size(); }
+  size_t g_polynomial_count() const { return 1 + g_cross.size() + g_diagonal.size(); }
+  size_t h_polynomial_count() const { return h_cross.size() + h_diagonal.size(); }
+  size_t z_native_size() const { return z_polynomial_count() * Rq::d * sizeof(Zq); }
+  size_t t_native_size() const { return t_polynomial_count() * Rq::d * sizeof(Zq); }
+  size_t g_native_size() const { return g_polynomial_count() * Rq::d * sizeof(Zq); }
+  size_t h_native_size() const { return h_polynomial_count() * Rq::d * sizeof(Zq); }
+  size_t polynomial_count() const
+  {
+    return z_polynomial_count() + t_polynomial_count() + g_polynomial_count() + h_polynomial_count();
+  }
+  size_t size() const
+  {
+    return z_native_size() + t_native_size() + g_native_size() + h_native_size();
+  }
+};
+
+/// A complete final response.  A one-execution proof may still use the
+/// generic base response; recursive proofs use the optimized Section 5.6
+/// response because their last instance has the required sparse structure.
+struct LabradorFinalProof {
+  bool uses_section_5_6 = false;
+  LabradorBaseCaseProof base;
+  LabradorSection56Proof section_5_6;
+
+  static LabradorFinalProof from_base(const LabradorBaseCaseProof& proof)
+  {
+    LabradorFinalProof result;
+    result.base = proof;
+    return result;
+  }
+
+  static LabradorFinalProof from_section_5_6(const LabradorSection56Proof& proof)
+  {
+    LabradorFinalProof result;
+    result.uses_section_5_6 = true;
+    result.section_5_6 = proof;
+    return result;
+  }
+
+  size_t size() const { return uses_section_5_6 ? section_5_6.size() : base.size(); }
 };

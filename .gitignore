@@ -24,6 +24,10 @@
 
 *.csv
 
+# Local LaBRADOR prover inputs contain a plaintext witness.
+/input1.lab
+/input1-recursive.lab
+
 #ignore all backends except cpu
 icicle/backend/*
 !icicle/backend/cpu

@@ -102,6 +102,7 @@ namespace icicle {
 #endif // EXT_FIELD
 
 #ifdef RING
+#ifdef RING_HAS_RNS
   // /*************************** NTT ***************************/
   ICICLE_DISPATCHER_INST(NttRingRnsDispatcher, ring_rns_ntt, NttRingRnsImpl);
 
@@ -182,6 +183,7 @@ namespace icicle {
   {
     return CONCAT_EXPAND(ICICLE_FFI_PREFIX, rns_get_root_of_unity_from_domain)(logn, rou);
   }
+#endif // RING_HAS_RNS
 
   template <>
   eIcicleError ntt(const PolyRing* input, size_t size, NTTDir dir, const NegacyclicNTTConfig& config, PolyRing* output)

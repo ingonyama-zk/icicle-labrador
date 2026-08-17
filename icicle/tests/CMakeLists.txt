@@ -78,6 +78,11 @@ if (RING)
     target_include_directories(test_ring_api PRIVATE ${CMAKE_SOURCE_DIR}/include/)
     target_link_libraries(test_ring_api PRIVATE GTest::gtest_main icicle_device icicle_ring)
     gtest_discover_tests(test_ring_api)
+
+    add_executable(sampler_hardening_smoke sampler_hardening_smoke.cpp)
+    target_include_directories(sampler_hardening_smoke PRIVATE ${CMAKE_SOURCE_DIR}/include/)
+    target_link_libraries(sampler_hardening_smoke PRIVATE icicle_device icicle_ring icicle_hash)
+    add_test(NAME sampler_hardening_smoke COMMAND sampler_hardening_smoke)
 endif()
 
 if (PQC)

@@ -1,0 +1,1223 @@
+{
+  "backend_ring": {
+    "arithmetic_backend": "computational-CRT/NTT-or-correct-coefficient-domain",
+    "degree": 64,
+    "irreducible_factor_count_of_x_degree_plus_1": 2,
+    "log2_modulus": 39.999999999744134,
+    "modulus": 1099511627581,
+    "modulus_hex": "0xffffffff3d",
+    "multiplicative_order_mod_2d": 32,
+    "packed_coefficient_bits": 40,
+    "q_mod_2d": 61
+  },
+  "binary_r1cs": {
+    "configured_capacity": 8388608,
+    "configured_variable_capacity": 8388608,
+    "first_level_padding_bits": 2176,
+    "fits_below_capacity": true,
+    "full_input_compiled": false,
+    "full_input_ready": false,
+    "full_section_6_compiler_available": false,
+    "initial_beta": 8192.000061035156,
+    "initial_beta_formula": "sqrt(2*(variable_capacity+3*constraint_capacity)+1)",
+    "initial_beta_squared_bound": 67108865,
+    "matrices_and_witness": {
+      "A": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      },
+      "B": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      },
+      "C": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      },
+      "witness": {
+        "configured": false,
+        "exists": false,
+        "path": null
+      }
+    },
+    "padded_binary_reduction_witness_bits": 67108864,
+    "padding_model": "binary variables are conservatively padded to equal constraints",
+    "reason_if_not_ready": "TeX has symbolic equations/counts but no numeric A,B,C matrices or witness",
+    "reason_not_compiled": "The current .lab frontend stores dense principal constraints and only implements the reduced conformance profile",
+    "rows_derived_from_tex": 7570304,
+    "schedule_first_level_capacity_bits": 67111040,
+    "variable_count": null
+  },
+  "paper_sections": [
+    "5.3",
+    "5.4",
+    "5.6",
+    "5.7",
+    "6"
+  ],
+  "proof_size": {
+    "canonical_cpp_bit_codec_implemented": true,
+    "composition_auxiliary_bits": {
+      "compact_flow_commitments_fixed_width": 15360,
+      "constant_term_masks_fixed_width": 10240,
+      "fixed_width": 30464,
+      "ideal_entropy": 30463.999999836247,
+      "lnp_projection_response": 4864
+    },
+    "estimate_status": "draft-until-ranks-are-estimator-certified",
+    "formula": "LaBRADOR Section 5.7 with Section 5.6 final round",
+    "labrador_recursive_bits": {
+      "fixed_width": 492416,
+      "ideal_entropy": 486319.5374451176
+    },
+    "native_cpp_struct_size_is_not_used": true,
+    "r1cs_reduction_output_bits": {
+      "fixed_width": 5120,
+      "ideal_entropy": 5119.999999967249
+    },
+    "rank_set_sized": "levels 1-6 finite-box joint rank/decomposition search; level 7 specialized Section 5.6 root-Hermite tail screen",
+    "recursive_core_bits": {
+      "fixed_width": 497536,
+      "ideal_entropy": 491439.53744508483
+    },
+    "reference_table_recursive_kib": 54.5087,
+    "total_kib": {
+      "fixed_width": 64.453125,
+      "ideal_entropy": 63.70892791075697
+    }
+  },
+  "schedule": [
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 17157,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 17250,
+        "ordinary_auxiliary_polynomials": 14554,
+        "ranks_recertification_required": false,
+        "reason": "joint rank/decomposition fixed-point optimization"
+      },
+      "combined_v": {
+        "g_length": 3705,
+        "h_length": 8892,
+        "length": 17157,
+        "t_length": 4560
+      },
+      "decomposition": {
+        "g": {
+          "base": 6,
+          "digits": 5,
+          "modeled_width": 6510.235992350709
+        },
+        "h": {
+          "base": 11,
+          "digits": 12
+        },
+        "t": {
+          "base": 11,
+          "digits": 12
+        },
+        "z": {
+          "base": 13,
+          "base_real": 13.413813970389938,
+          "digits": 2
+        }
+      },
+      "joint_fixed_point_search": {
+        "auxiliary_polynomials": 17157,
+        "base1": 11,
+        "base2": 6,
+        "base3": 11,
+        "beta_prime": 8110.469428771036,
+        "beta_prime_squared": 65779714.35502958,
+        "capacity_polynomials": 17250,
+        "configured_choice_is_optimum": true,
+        "digits1": 12,
+        "digits2": 5,
+        "digits3": 12,
+        "kappa": 10,
+        "kappa1": 4,
+        "kappa2": 4,
+        "search_digit_range": [
+          1,
+          40
+        ],
+        "search_rank_range": [
+          1,
+          64
+        ],
+        "z_base": 13
+      },
+      "level": 1,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 10,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "estimator_certified_minimum": false,
+        "final_actual_z_rank_check_required": false,
+        "joint_rank_decomposition_fixed_point": true,
+        "method": "execution-specific reference root-Hermite fixed-point screen",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 10,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "unsplit_z_reconstruction_factor": null
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 10,
+        "kappa1": 4,
+        "kappa2": 4,
+        "method": "joint-decomposition-rank-search-with-reference-Core-SVP-root-Hermite-1.00444-screen"
+      },
+      "reference_table": {
+        "output_kib": 4.2046,
+        "recomputed_not_copied": true,
+        "witness_kib": 8192.0
+      },
+      "relation": {
+        "beta": 8192.000061035156,
+        "n": 27595,
+        "r": 38,
+        "witness_polynomials": 1048610
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4352,
+          "jl_proof": 10240,
+          "outer_commitments": 20480
+        },
+        "fixed_width_total_bits": 35584,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4117.750402936338,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 20479.999999868996
+        },
+        "ideal_entropy_total_bits": 35349.75040273983,
+        "jl_coefficient_width_bits": 16.08496251147007
+      },
+      "target_norm": {
+        "beta_prime": 8110.469428771037,
+        "beta_prime_squared": 65779714.3550296,
+        "canonical_next_level_beta": 8110.469428771037,
+        "formula_beta_prime_binary64": 8110.469428771036,
+        "formula_beta_prime_squared": 65779714.35502958,
+        "formula_matches_canonical_beta": true,
+        "gamma1_squared": 3654080.0,
+        "gamma2_squared": 5738304.0,
+        "gamma_squared": 4764729415.0
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 28144894.872688927,
+        "effective_outer_norm": 33505.82722939158,
+        "inner_norm": 13625588.640335342,
+        "outer_norm": 16220.938857542074,
+        "remark_5_2_multiplier": 2.065591117977289,
+        "section_5_6_tail_slack_multiplier": null
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 3450,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 21,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 5,
+          "n_prime": 3450,
+          "nu": 8,
+          "padding_polynomials": 103
+        },
+        "minimum_n_for_configured_split": 3450,
+        "mu": 5,
+        "nu": 8
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 4452,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 4600,
+        "ordinary_auxiliary_polynomials": 4662,
+        "ranks_recertification_required": false,
+        "reason": "joint rank/decomposition fixed-point optimization"
+      },
+      "combined_v": {
+        "g_length": 924,
+        "h_length": 1848,
+        "length": 4452,
+        "t_length": 1680
+      },
+      "decomposition": {
+        "g": {
+          "base": 13,
+          "digits": 4,
+          "modeled_width": 32657.187132335108
+        },
+        "h": {
+          "base": 32,
+          "digits": 8
+        },
+        "t": {
+          "base": 32,
+          "digits": 8
+        },
+        "z": {
+          "base": 22,
+          "base_real": 22.445698615961273,
+          "digits": 2
+        }
+      },
+      "joint_fixed_point_search": {
+        "auxiliary_polynomials": 4452,
+        "base1": 32,
+        "base2": 13,
+        "base3": 32,
+        "beta_prime": 6276.8959768472805,
+        "beta_prime_squared": 39399423.104161575,
+        "capacity_polynomials": 4600,
+        "configured_choice_is_optimum": true,
+        "digits1": 8,
+        "digits2": 4,
+        "digits3": 8,
+        "kappa": 10,
+        "kappa1": 4,
+        "kappa2": 4,
+        "search_digit_range": [
+          1,
+          40
+        ],
+        "search_rank_range": [
+          1,
+          64
+        ],
+        "z_base": 22
+      },
+      "level": 2,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 10,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "estimator_certified_minimum": false,
+        "final_actual_z_rank_check_required": false,
+        "joint_rank_decomposition_fixed_point": true,
+        "method": "execution-specific reference root-Hermite fixed-point screen",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 10,
+          "kappa1": 4,
+          "kappa2": 4
+        },
+        "unsplit_z_reconstruction_factor": null
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 10,
+        "kappa1": 4,
+        "kappa2": 4,
+        "method": "joint-decomposition-rank-search-with-reference-Core-SVP-root-Hermite-1.00444-screen"
+      },
+      "reference_table": {
+        "output_kib": 4.2037,
+        "recomputed_not_copied": true,
+        "witness_kib": 2235.37
+      },
+      "relation": {
+        "beta": 8110.469428771037,
+        "n": 3450,
+        "r": 21,
+        "witness_polynomials": 72450
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4352,
+          "jl_proof": 10240,
+          "outer_commitments": 20480
+        },
+        "fixed_width_total_bits": 35584,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4114.056244353661,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 20479.999999868996
+        },
+        "ideal_entropy_total_bits": 35346.05624415715,
+        "jl_coefficient_width_bits": 16.07053220450649
+      },
+      "target_norm": {
+        "beta_prime": 6276.8959768472805,
+        "beta_prime_squared": 39399423.104161575,
+        "canonical_next_level_beta": 6276.8959768472805,
+        "formula_beta_prime_binary64": 6276.8959768472805,
+        "formula_beta_prime_squared": 39399423.104161575,
+        "formula_matches_canonical_beta": true,
+        "gamma1_squared": 10007872.0,
+        "gamma2_squared": 10092544.0,
+        "gamma_squared": 4670359719.207102
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 35784781.59595101,
+        "effective_outer_norm": 25931.00115648624,
+        "inner_norm": 17324232.896098495,
+        "outer_norm": 12553.791953694561,
+        "remark_5_2_multiplier": 2.065591117977289,
+        "section_5_6_tail_slack_multiplier": null
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 1150,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 10,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 4,
+          "n_prime": 1150,
+          "nu": 3,
+          "padding_polynomials": 148
+        },
+        "minimum_n_for_configured_split": 1150,
+        "mu": 4,
+        "nu": 3
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 1715,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 1725,
+        "ordinary_auxiliary_polynomials": 1560,
+        "ranks_recertification_required": false,
+        "reason": "joint rank/decomposition fixed-point optimization"
+      },
+      "combined_v": {
+        "g_length": 165,
+        "h_length": 550,
+        "length": 1715,
+        "t_length": 1000
+      },
+      "decomposition": {
+        "g": {
+          "base": 41,
+          "digits": 3,
+          "modeled_width": 71146.99742222484
+        },
+        "h": {
+          "base": 16,
+          "digits": 10
+        },
+        "t": {
+          "base": 16,
+          "digits": 10
+        },
+        "z": {
+          "base": 26,
+          "base_real": 25.987404765800097,
+          "digits": 2
+        }
+      },
+      "joint_fixed_point_search": {
+        "auxiliary_polynomials": 1715,
+        "base1": 16,
+        "base2": 41,
+        "base3": 16,
+        "beta_prime": 3445.5415895547535,
+        "beta_prime_squared": 11871756.845351497,
+        "capacity_polynomials": 1725,
+        "configured_choice_is_optimum": true,
+        "digits1": 10,
+        "digits2": 3,
+        "digits3": 10,
+        "kappa": 10,
+        "kappa1": 3,
+        "kappa2": 3,
+        "search_digit_range": [
+          1,
+          40
+        ],
+        "search_rank_range": [
+          1,
+          64
+        ],
+        "z_base": 26
+      },
+      "level": 3,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 10,
+          "kappa1": 3,
+          "kappa2": 3
+        },
+        "estimator_certified_minimum": false,
+        "final_actual_z_rank_check_required": false,
+        "joint_rank_decomposition_fixed_point": true,
+        "method": "execution-specific reference root-Hermite fixed-point screen",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 10,
+          "kappa1": 3,
+          "kappa2": 3
+        },
+        "unsplit_z_reconstruction_factor": null
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 10,
+        "kappa1": 3,
+        "kappa2": 3,
+        "method": "joint-decomposition-rank-search-with-reference-Core-SVP-root-Hermite-1.00444-screen"
+      },
+      "reference_table": {
+        "output_kib": 3.5613,
+        "recomputed_not_copied": true,
+        "witness_kib": 423.65
+      },
+      "relation": {
+        "beta": 6276.8959768472805,
+        "n": 1150,
+        "r": 10,
+        "witness_polynomials": 11500
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4096,
+          "jl_proof": 10240,
+          "outer_commitments": 15360
+        },
+        "fixed_width_total_bits": 30208,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4019.4043099138607,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 15359.999999901747
+        },
+        "ideal_entropy_total_bits": 30131.404309750105,
+        "jl_coefficient_width_bits": 15.700798085601019
+      },
+      "target_norm": {
+        "beta_prime": 3445.541589554753,
+        "beta_prime_squared": 11871756.845351495,
+        "canonical_next_level_beta": 3445.541589554753,
+        "formula_beta_prime_binary64": 3445.5415895547535,
+        "formula_beta_prime_squared": 11871756.845351497,
+        "formula_matches_canonical_beta": true,
+        "gamma1_squared": 2844613.3333333335,
+        "gamma2_squared": 750933.3333333334,
+        "gamma_squared": 2797359040.395472
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 23059339.536978297,
+        "effective_outer_norm": 14234.160208011293,
+        "inner_norm": 11163554.750157401,
+        "outer_norm": 6891.083179109506,
+        "remark_5_2_multiplier": 2.065591117977289,
+        "section_5_6_tail_slack_multiplier": null
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 575,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 7,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 3,
+          "n_prime": 575,
+          "nu": 2,
+          "padding_polynomials": 10
+        },
+        "minimum_n_for_configured_split": 575,
+        "mu": 3,
+        "nu": 2
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 868,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 870,
+        "ordinary_auxiliary_polynomials": 903,
+        "ranks_recertification_required": false,
+        "reason": "joint rank/decomposition fixed-point optimization"
+      },
+      "combined_v": {
+        "g_length": 140,
+        "h_length": 224,
+        "length": 868,
+        "t_length": 504
+      },
+      "decomposition": {
+        "g": {
+          "base": 8,
+          "digits": 5,
+          "modeled_width": 43311.04519793716
+        },
+        "h": {
+          "base": 32,
+          "digits": 8
+        },
+        "t": {
+          "base": 32,
+          "digits": 8
+        },
+        "z": {
+          "base": 23,
+          "base_real": 22.896900255449747,
+          "digits": 2
+        }
+      },
+      "joint_fixed_point_search": {
+        "auxiliary_polynomials": 868,
+        "base1": 32,
+        "base2": 8,
+        "base3": 32,
+        "beta_prime": 2685.215990852461,
+        "beta_prime_squared": 7210384.917529764,
+        "capacity_polynomials": 870,
+        "configured_choice_is_optimum": true,
+        "digits1": 8,
+        "digits2": 5,
+        "digits3": 8,
+        "kappa": 9,
+        "kappa1": 3,
+        "kappa2": 3,
+        "search_digit_range": [
+          1,
+          40
+        ],
+        "search_rank_range": [
+          1,
+          64
+        ],
+        "z_base": 23
+      },
+      "level": 4,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 9,
+          "kappa1": 3,
+          "kappa2": 3
+        },
+        "estimator_certified_minimum": false,
+        "final_actual_z_rank_check_required": false,
+        "joint_rank_decomposition_fixed_point": true,
+        "method": "execution-specific reference root-Hermite fixed-point screen",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 9,
+          "kappa1": 3,
+          "kappa2": 3
+        },
+        "unsplit_z_reconstruction_factor": null
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 9,
+        "kappa1": 3,
+        "kappa2": 3,
+        "method": "joint-decomposition-rank-search-with-reference-Core-SVP-root-Hermite-1.00444-screen"
+      },
+      "reference_table": {
+        "output_kib": 3.5372,
+        "recomputed_not_copied": true,
+        "witness_kib": 147.75
+      },
+      "relation": {
+        "beta": 3445.541589554753,
+        "n": 575,
+        "r": 7,
+        "witness_polynomials": 4025
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3840,
+          "jl_proof": 10240,
+          "outer_commitments": 15360
+        },
+        "fixed_width_total_bits": 29952,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3797.882254601354,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 15359.999999901747
+        },
+        "ideal_entropy_total_bits": 29909.882254437598,
+        "jl_coefficient_width_bits": 14.835477557036539
+      },
+      "target_norm": {
+        "beta_prime": 2685.2159908524613,
+        "beta_prime_squared": 7210384.9175297655,
+        "canonical_next_level_beta": 2685.2159908524613,
+        "formula_beta_prime_binary64": 2685.215990852461,
+        "formula_beta_prime_squared": 7210384.917529764,
+        "formula_matches_canonical_beta": true,
+        "gamma1_squared": 2800298.666666666,
+        "gamma2_squared": 1223338.6666666665,
+        "gamma_squared": 842894736.0199561
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 15974087.905599637,
+        "effective_outer_norm": 11093.116601110858,
+        "inner_norm": 7733422.05365509,
+        "outer_norm": 5370.431981704923,
+        "remark_5_2_multiplier": 2.065591117977289,
+        "section_5_6_tail_slack_multiplier": null
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 290,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 7,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 3,
+          "n_prime": 290,
+          "nu": 2,
+          "padding_polynomials": 12
+        },
+        "minimum_n_for_configured_split": 290,
+        "mu": 3,
+        "nu": 2
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 868,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 870,
+        "ordinary_auxiliary_polynomials": 903,
+        "ranks_recertification_required": false,
+        "reason": "joint rank/decomposition fixed-point optimization"
+      },
+      "combined_v": {
+        "g_length": 140,
+        "h_length": 224,
+        "length": 868,
+        "t_length": 504
+      },
+      "decomposition": {
+        "g": {
+          "base": 8,
+          "digits": 5,
+          "modeled_width": 37040.517402206155
+        },
+        "h": {
+          "base": 32,
+          "digits": 8
+        },
+        "t": {
+          "base": 32,
+          "digits": 8
+        },
+        "z": {
+          "base": 24,
+          "base_real": 23.98584473736792,
+          "digits": 2
+        }
+      },
+      "joint_fixed_point_search": {
+        "auxiliary_polynomials": 868,
+        "base1": 32,
+        "base2": 8,
+        "base3": 32,
+        "beta_prime": 2408.56752115741,
+        "beta_prime_squared": 5801197.50397435,
+        "capacity_polynomials": 870,
+        "configured_choice_is_optimum": true,
+        "digits1": 8,
+        "digits2": 5,
+        "digits3": 8,
+        "kappa": 9,
+        "kappa1": 3,
+        "kappa2": 3,
+        "search_digit_range": [
+          1,
+          40
+        ],
+        "search_rank_range": [
+          1,
+          64
+        ],
+        "z_base": 24
+      },
+      "level": 5,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 9,
+          "kappa1": 3,
+          "kappa2": 3
+        },
+        "estimator_certified_minimum": false,
+        "final_actual_z_rank_check_required": false,
+        "joint_rank_decomposition_fixed_point": true,
+        "method": "execution-specific reference root-Hermite fixed-point screen",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 9,
+          "kappa1": 3,
+          "kappa2": 3
+        },
+        "unsplit_z_reconstruction_factor": null
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 9,
+        "kappa1": 3,
+        "kappa2": 3,
+        "method": "joint-decomposition-rank-search-with-reference-Core-SVP-root-Hermite-1.00444-screen"
+      },
+      "reference_table": {
+        "output_kib": 3.5191,
+        "recomputed_not_copied": true,
+        "witness_kib": 73.27
+      },
+      "relation": {
+        "beta": 2685.2159908524613,
+        "n": 290,
+        "r": 7,
+        "witness_polynomials": 2030
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3840,
+          "jl_proof": 10240,
+          "outer_commitments": 15360
+        },
+        "fixed_width_total_bits": 29952,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3705.8009406449355,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 15359.999999901747
+        },
+        "ideal_entropy_total_bits": 29817.800940481182,
+        "jl_coefficient_width_bits": 14.47578492439428
+      },
+      "target_norm": {
+        "beta_prime": 2408.5675211574103,
+        "beta_prime_squared": 5801197.503974352,
+        "canonical_next_level_beta": 2408.5675211574103,
+        "formula_beta_prime_binary64": 2408.56752115741,
+        "formula_beta_prime_squared": 5801197.50397435,
+        "formula_matches_canonical_beta": true,
+        "gamma1_squared": 2800298.666666666,
+        "gamma2_squared": 1223338.6666666665,
+        "gamma_squared": 511937329.1446133
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 14925347.036253966,
+        "effective_outer_norm": 9950.231357502644,
+        "inner_norm": 7225702.563472231,
+        "outer_norm": 4817.135042314821,
+        "remark_5_2_multiplier": 2.065591117977289,
+        "section_5_6_tail_slack_multiplier": null
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 290,
+        "configured_split_is_locally_optimal": true,
+        "derived_r_prime": 5,
+        "kind": "section-5.3-standard",
+        "locally_optimal_for_fixed_r_prime": {
+          "mu": 3,
+          "n_prime": 290,
+          "nu": 1,
+          "padding_polynomials": 2
+        },
+        "minimum_n_for_configured_split": 290,
+        "mu": 3,
+        "nu": 1
+      }
+    },
+    {
+      "capacity_adjustment": {
+        "adjusted_auxiliary_polynomials": 305,
+        "applied": true,
+        "auxiliary_capacity_polynomials": 306,
+        "ordinary_auxiliary_polynomials": 540,
+        "ranks_recertification_required": false,
+        "reason": "joint rank/decomposition fixed-point optimization"
+      },
+      "combined_v": {
+        "g_length": 30,
+        "h_length": 75,
+        "length": 305,
+        "t_length": 200
+      },
+      "decomposition": {
+        "g": {
+          "base": 204,
+          "digits": 2,
+          "modeled_width": 41721.919617364685
+        },
+        "h": {
+          "base": 256,
+          "digits": 5
+        },
+        "t": {
+          "base": 256,
+          "digits": 5
+        },
+        "z": {
+          "base": 23,
+          "base_real": 22.716677814869627,
+          "digits": 2
+        }
+      },
+      "joint_fixed_point_search": {
+        "auxiliary_polynomials": 305,
+        "base1": 256,
+        "base2": 204,
+        "base3": 256,
+        "beta_prime": 22686.18631345616,
+        "beta_prime_squared": 514663049.4488457,
+        "capacity_polynomials": 306,
+        "configured_choice_is_optimum": true,
+        "digits1": 5,
+        "digits2": 2,
+        "digits3": 5,
+        "kappa": 8,
+        "kappa1": 5,
+        "kappa2": 5,
+        "search_digit_range": [
+          1,
+          40
+        ],
+        "search_rank_range": [
+          1,
+          64
+        ],
+        "z_base": 23
+      },
+      "level": 6,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 8,
+          "kappa1": 5,
+          "kappa2": 5
+        },
+        "estimator_certified_minimum": false,
+        "final_actual_z_rank_check_required": false,
+        "joint_rank_decomposition_fixed_point": true,
+        "method": "execution-specific reference root-Hermite fixed-point screen",
+        "outer_commitments_used_by_this_execution": true,
+        "passes": {
+          "kappa": true,
+          "kappa1": true,
+          "kappa2": true
+        },
+        "required_ranks": {
+          "kappa": 8,
+          "kappa1": 5,
+          "kappa2": 5
+        },
+        "unsplit_z_reconstruction_factor": 1
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 8,
+        "kappa1": 5,
+        "kappa2": 5,
+        "method": "joint-decomposition-rank-search-with-reference-Core-SVP-root-Hermite-1.00444-screen"
+      },
+      "reference_table": {
+        "output_kib": 4.1388,
+        "recomputed_not_copied": true,
+        "witness_kib": 53.13
+      },
+      "relation": {
+        "beta": 2408.5675211574103,
+        "n": 290,
+        "r": 5,
+        "witness_polynomials": 1450
+      },
+      "section_5_7_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3840,
+          "jl_proof": 10240,
+          "outer_commitments": 25600
+        },
+        "fixed_width_total_bits": 40192,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 3665.6440714275245,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 25599.999999836247
+        },
+        "ideal_entropy_total_bits": 40017.64407119827,
+        "jl_coefficient_width_bits": 14.318922154013768
+      },
+      "target_norm": {
+        "beta_prime": 22686.18631345616,
+        "beta_prime_squared": 514663049.4488456,
+        "canonical_next_level_beta": 22686.18631345616,
+        "formula_beta_prime_binary64": 22686.18631345616,
+        "formula_beta_prime_squared": 514663049.4488457,
+        "formula_matches_canonical_beta": true,
+        "gamma1_squared": 76563626.66666667,
+        "gamma2_squared": 26214400.0,
+        "gamma_squared": 411885022.782179
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 5623246.193982357,
+        "effective_outer_norm": 93720.76989970596,
+        "inner_norm": 2722342.3576147393,
+        "outer_norm": 45372.37262691232,
+        "remark_5_2_multiplier": 2.065591117977289,
+        "section_5_6_tail_slack_multiplier": null
+      },
+      "transition": {
+        "configured_capacity_holds": true,
+        "configured_n_prime": 153,
+        "derived_r_prime": 4,
+        "kind": "section-5.6-tail",
+        "minimum_n_for_configured_split": 153,
+        "minimum_n_from_auxiliary": 153,
+        "minimum_n_from_unsplit_z": 145,
+        "mu": 2,
+        "nu": 2,
+        "specialized_final_round_compiler_implemented": true
+      }
+    },
+    {
+      "capacity_adjustment": null,
+      "combined_v": {
+        "g_length": 40,
+        "h_length": 60,
+        "length": 340,
+        "t_length": 240
+      },
+      "decomposition": {
+        "g": {
+          "base": 50,
+          "digits": 4,
+          "modeled_width": 6369904.423408215
+        },
+        "h": {
+          "base": 102,
+          "digits": 6
+        },
+        "t": {
+          "base": 102,
+          "digits": 6
+        },
+        "usage": "dormant-public-metadata; Section 5.6 sends full-q values and uses no outer commitments",
+        "z": {
+          "base": 82,
+          "base_real": 81.80367125054586,
+          "digits": 2
+        }
+      },
+      "joint_fixed_point_search": null,
+      "level": 7,
+      "post_adjustment_root_hermite_screen": {
+        "all_displayed_ranks_pass": true,
+        "displayed_ranks": {
+          "kappa": 10,
+          "kappa1": 0,
+          "kappa2": 0
+        },
+        "estimator_certified_minimum": false,
+        "final_actual_z_rank_check_required": true,
+        "joint_rank_decomposition_fixed_point": false,
+        "method": "execution-specific reference root-Hermite fixed-point screen",
+        "outer_commitments_used_by_this_execution": false,
+        "passes": {
+          "kappa": true,
+          "kappa1": null,
+          "kappa2": null
+        },
+        "required_ranks": {
+          "kappa": 10,
+          "kappa1": null,
+          "kappa2": null
+        },
+        "unsplit_z_reconstruction_factor": null
+      },
+      "ranks": {
+        "estimator_certified": false,
+        "kappa": 10,
+        "kappa1": 0,
+        "kappa2": 0,
+        "method": "section-5.6-final-reference-tail-root-Hermite-screen"
+      },
+      "reference_table": {
+        "output_kib": 30.7189,
+        "recomputed_not_copied": true,
+        "witness_kib": 40.39
+      },
+      "relation": {
+        "beta": 22686.18631345616,
+        "n": 153,
+        "r": 4,
+        "witness_polynomials": 612
+      },
+      "section_5_7_final_prefix": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 7,
+        "fixed_width_bits": {
+          "challenge_seeds": 896,
+          "jl_projection": 4608,
+          "jl_proof": 10240,
+          "outer_commitments": 0
+        },
+        "fixed_width_total_bits": 15744,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 896,
+          "jl_projection": 4493.949179855772,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 0
+        },
+        "ideal_entropy_total_bits": 15629.94917979027,
+        "jl_coefficient_width_bits": 17.55448898381161,
+        "outer_commitments_omitted": true
+      },
+      "section_5_7_final_response": {
+        "fixed_width_bits": {
+          "inner_commitments_t": 102400,
+          "masked_opening_z": 146880,
+          "reduced_garbage_g": 8000,
+          "reduced_garbage_h": 17920
+        },
+        "fixed_width_total_bits": 275200,
+        "g_coefficient_width_bits": 24.39532154555574,
+        "g_polynomials": 5,
+        "h_polynomials": 7,
+        "ideal_entropy_bits": {
+          "inner_commitments_t": 102399.99999934499,
+          "masked_opening_z": 141990.547148755,
+          "reduced_garbage_g": 7806.502894577836,
+          "reduced_garbage_h": 17919.99999988537
+        },
+        "ideal_entropy_total_bits": 270117.0500425632,
+        "outer_commitments_included": false,
+        "section_5_6_optimized": true,
+        "z_coefficient_width_bits": 14.500668622217626
+      },
+      "section_5_7_prefix_with_outer_commitments_counterfactual": {
+        "aggregation_rounds": 4,
+        "challenge_seed_count": 4,
+        "fixed_width_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4608,
+          "jl_proof": 10240,
+          "outer_commitments": 0
+        },
+        "fixed_width_total_bits": 15360,
+        "ideal_entropy_bits": {
+          "challenge_seeds": 512,
+          "jl_projection": 4493.949179855772,
+          "jl_proof": 10239.999999934498,
+          "outer_commitments": 0.0
+        },
+        "ideal_entropy_total_bits": 15245.94917979027,
+        "jl_coefficient_width_bits": 17.55448898381161
+      },
+      "target_norm": {
+        "beta_prime": 5296.091404932844,
+        "beta_prime_squared": 28048584.16940354,
+        "gamma1_squared": 13850453.333333334,
+        "gamma2_squared": 3329280.0,
+        "gamma_squared": 36541076510.86804,
+        "used_as_next_level_beta": false
+      },
+      "theorem_5_1_msis_inputs": {
+        "effective_inner_norm": 35536735.98145445,
+        "effective_outer_norm": 0.0,
+        "inner_norm": 17204148.329342872,
+        "outer_norm": 0.0,
+        "remark_5_2_multiplier": null,
+        "section_5_6_tail_slack_multiplier": 2.065591117977289
+      }
+    }
+  ],
+  "schema": "lnplabrador-paper-plan-v1",
+  "security_status": {
+    "capacity_adjusted_levels_requiring_recertification": [],
+    "capacity_adjusted_rank_fixed_point_screened": true,
+    "concrete_security_claim": false,
+    "configured_finite_box_search_optimum": true,
+    "exact_composed_tail_soundness_accounted": false,
+    "joint_optimized_capacity_levels": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "joint_search_mismatching_levels": [],
+    "meets_128_bits_under_simple_union_bound": false,
+    "module_sis_ranks_estimator_certified": false,
+    "paper_per_execution_soundness_bits": 125,
+    "post_adjustment_root_hermite_screen_failing_levels": [],
+    "post_adjustment_root_hermite_screen_performed": true,
+    "rank_method": "levels 1-6 joint norm/decomposition root-Hermite fallback; level 7 specialized actual-z tail check",
+    "section_5_6_sequential_challenge_error_accounted": false,
+    "seven_execution_union_bound_bits": 122.1926450779424,
+    "seven_execution_union_bound_is_standard_level_accounting_only": true
+  },
+  "warnings": [
+    "Run a current Core-SVP/Module-SIS estimator for every displayed norm before making a security claim.",
+    "Joint-optimized levels 1,2,3,4,5,6 use the committed finite-box decomposition/rank choice; run a concrete Module-SIS estimator before treating it as final.",
+    "The final rank is accepted only when the prover/verifier post-transcript check passes for the actual folded-z norm.",
+    "The simple seven-execution union bound does not include the separate sequential-challenge error terms of the optimized Section 5.6 tail.",
+    "The full-circuit size is a Section 5.7 estimate; the C++ runner measures its canonical codec only when actual proof vectors exist.",
+    "A full binary-R1CS input cannot be generated until numeric A,B,C matrices and the real witness are supplied."
+  ]
+}

@@ -48,4 +48,7 @@ namespace field_config = goldilocks;
 #if RING_ID == BABYKOALA
   #include "icicle/rings/params/babykoala.h"
 namespace field_config = babykoala;
+#elif RING_ID == LABRADOR_Q40
+  #include "icicle/rings/params/labradorq40.h"
+namespace field_config = labradorq40;
 #endif

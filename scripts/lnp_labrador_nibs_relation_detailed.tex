@@ -1,0 +1,1578 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts,mathtools}
+\usepackage{booktabs,longtable,tabularx,array,multirow}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{setspace}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!55!black,
+  citecolor=blue!55!black,
+  urlcolor=blue!55!black,
+  pdftitle={Exact LNP Transcript and Recursive LaBRADOR Compression for the NIBS Relation}
+}
+
+\allowdisplaybreaks
+\setlist[itemize]{leftmargin=1.6em,itemsep=0.25em,topsep=0.35em}
+\setlist[enumerate]{leftmargin=1.8em,itemsep=0.25em,topsep=0.35em}
+\renewcommand{\arraystretch}{1.16}
+
+% -----------------------------------------------------------------------------
+% Basic notation
+% -----------------------------------------------------------------------------
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\F}{\mathbb{F}}
+\newcommand{\R}{\mathcal{R}}
+\newcommand{\Rp}{R_p}
+\newcommand{\Rsig}{R_{q_{\mathrm{sig}}}}
+\newcommand{\Romuf}{R_{q_{\mathrm{omuf}}}}
+\newcommand{\Rpi}{R_{q_{\pi}}}
+\newcommand{\sigmod}{q_{\mathrm{sig}}}
+\newcommand{\omufmod}{q_{\mathrm{omuf}}}
+\newcommand{\proofmod}{q_{\pi}}
+\newcommand{\LNP}{\mathsf{LNP}}
+\newcommand{\LNPcom}{\mathsf{LNP}^{\mathsf{com}}}
+\newcommand{\LaB}{\mathsf{LaBRADOR}}
+\newcommand{\LNPLab}{\mathsf{LNPLab}}
+\newcommand{\FS}{\mathsf{FS}}
+\newcommand{\Com}{\mathsf{Com}}
+\newcommand{\CLaB}{\mathsf{C}_{\mathsf{LaB}}}
+\newcommand{\Rej}{\mathsf{Rej}}
+\newcommand{\Bin}{\mathsf{Bin}}
+\newcommand{\MSIS}{\mathsf{MSIS}}
+\newcommand{\MLWE}{\mathsf{MLWE}}
+\newcommand{\ct}{\operatorname{ct}}
+\newcommand{\op}{\operatorname{op}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\Enc}{\operatorname{Enc}}
+\newcommand{\Bits}{\operatorname{Bits}}
+\newcommand{\Lift}{\operatorname{Lift}}
+\newcommand{\powvec}{\operatorname{pow}}
+\newcommand{\vecx}[1]{\overrightarrow{#1}}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1\right\rvert}
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle}
+\newcommand{\concat}{\mathbin\Vert}
+\newcommand{\getsr}{\xleftarrow{\$}}
+\newcommand{\calC}{\mathcal{C}}
+\newcommand{\calF}{\mathcal{F}}
+\newcommand{\calG}{\mathcal{G}}
+\newcommand{\calR}{\mathcal{R}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\zero}{\mathbf{0}}
+\newcommand{\transpose}{\mathsf{T}}
+\newcommand{\pk}{\mathsf{pk}}
+
+\newtcolorbox{importantbox}[1][]{
+  enhanced,breakable,colback=yellow!7,colframe=yellow!45!black,
+  fonttitle=\bfseries,title={#1},boxrule=0.7pt,arc=1mm,
+  left=1.2mm,right=1.2mm,top=1mm,bottom=1mm
+}
+\newtcolorbox{definitionbox}[1][]{
+  enhanced,breakable,colback=blue!3,colframe=blue!45!black,
+  fonttitle=\bfseries,title={#1},boxrule=0.7pt,arc=1mm,
+  left=1.2mm,right=1.2mm,top=1mm,bottom=1mm
+}
+\newtcolorbox{protocolbox}[1][]{
+  enhanced,breakable,colback=gray!3,colframe=black!55,
+  fonttitle=\bfseries,title={#1},boxrule=0.7pt,arc=1mm,
+  left=1.2mm,right=1.2mm,top=1mm,bottom=1mm
+}
+
+\title{Exact LNP Transcript and Recursive LaBRADOR Compression\\
+for the Lattice-Based NIBS Relation}
+\author{Technical appendix for \texttt{Master\_thesis\_Tran}}
+\date{August 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Scope and consistency conventions}
+% =============================================================================
+
+This document gives a self-contained specification of the exact lattice proof
+layer used for the NIBS relation: the application relation, its embedding into
+an LNP exact proof, the complete nine-message LNP transcript, the
+composition-friendly compressed transcript, the LaBRADOR boundary relation,
+and the recursive LaBRADOR proof.  No construction or security argument that
+is unrelated to LNP or LaBRADOR is included.
+
+The presentation follows the LNP framework of Lyubashevsky--Nguyen--Plancon
+\cite{LNP22}, the LaBRADOR framework of Beullens--Seiler \cite{BS23}, and the
+formal LNP--LaBRADOR composition of del Pino et al. \cite{DPKNRT25}.  The
+application equations and numerical parameters are taken from the current
+master-thesis draft.
+
+\begin{importantbox}[Consistency decisions used throughout this file]
+The current thesis PDF contains several shorthand expressions and dimension
+entries that are mutually inconsistent.  A transcript cannot be implemented
+until one convention is fixed.  This file uses the following conventions.
+\begin{enumerate}
+  \item The selection vector has length
+  \(\ell=8\cdot 8=64\), because it is indexed as
+  \(v=(v_{i,j})_{i,j\in[8]}\).  The value ``28'' in the summary table is not
+  used.
+  \item The rounding-error vector satisfies \(e_M\in R^{m}\) with \(m=21\).
+  Thus its ring-coordinate dimension is \(21\), not \(24\).
+  \item The pre-signature witness is the full vector
+  \(z=(z_L,z_R)\in R^{2k}\).  Consequently, the preimage equation contains
+  both terms \(A_{\mathrm{td}}z_L\) and \(B_vz_R\).  Omitting
+  \(A_{\mathrm{td}}z_L\) changes the application relation.
+  \item The symbol \(z\) is reserved for the application pre-signature.
+  The final LNP responses are written
+  \((z_{A,1},z_{A,2},z_u)\), and the LaBRADOR folded opening is written
+  \(z_{\mathrm{fold}}\).
+  \item The LNP final challenge space and the LaBRADOR folding challenge space
+  are different sets.  They are denoted \(\calC_{\LNP}\) and
+  \(\calC_{\LaB}\), respectively.
+\end{enumerate}
+All proof-size figures reproduced from the thesis are therefore labelled
+\emph{draft estimates}.  They must be regenerated after the final serialization
+of the full vector \(z=(z_L,z_R)\), the quotient/carry block, and all binary
+range blocks is fixed.
+\end{importantbox}
+
+% =============================================================================
+\section{Rings, coefficient embeddings, and automorphisms}
+% =============================================================================
+
+Let
+\[
+  R := \Z[X]/(X^d+1), \qquad d=64,
+\]
+and, for a positive modulus \(q\), let
+\[
+  R_q := \Z_q[X]/(X^d+1).
+\]
+We use three application/proof rings:
+\[
+  \Rsig=R/\sigmod R,\qquad
+  \Romuf=R/\omufmod R,\qquad
+  \Rpi=R/\proofmod R.
+\]
+For \(a\in R_q\), \(\vecx a\in\Z_q^d\) denotes its coefficient vector.  The
+same notation is extended componentwise to vectors of ring elements.  The
+constant coefficient is denoted by \(\ct(a)\).
+
+The conjugation automorphism used by both LNP and LaBRADOR is
+\[
+  \sigma:R_q\longrightarrow R_q,\qquad
+  \sigma(X)=X^{-1}=-X^{d-1}.
+\]
+For any \(a,b\in R_q\),
+\begin{equation}
+  \inner{\vecx a}{\vecx b}
+  =\ct\!\left(a\,\sigma(b)\right).
+  \label{eq:ct-inner-product}
+\end{equation}
+For polynomial vectors, the right-hand side is summed over coordinates.  This
+identity is the bridge from integer inner products and norm equations to
+constant-coefficient quadratic equations in \(R_q\).
+
+For \(x\in\Z_q\), let \(x^*\in\{0,1\}^{\lceil\log_2q\rceil}\) be its binary
+expansion, and extend \((\cdot)^*\) coefficientwise to ring elements and ring
+vectors.  Let
+\[
+  \powvec(B):=(1,2,\ldots,2^{\lceil\log_2 B\rceil})
+\]
+with zero padding as necessary.  Thus a nonnegative integer \(a\le B\) can be
+written \(a=\inner{a^*}{\powvec(B)}\).
+
+% =============================================================================
+\section{Concrete parameter set}
+% =============================================================================
+
+\subsection{Fixed and derived parameters}
+
+\begin{longtable}{@{}p{0.25\textwidth}p{0.18\textwidth}p{0.47\textwidth}@{}}
+\toprule
+Parameter & Value & Meaning / status \\
+\midrule
+\endfirsthead
+\toprule
+Parameter & Value & Meaning / status \\
+\midrule
+\endhead
+Security level & \(\lambda=128\) & Target classical/quantum-safe soundness level. \\
+Ring degree & \(d=64\) & \(R=\Z[X]/(X^{64}+1)\). \\
+Signature modulus & \(\sigmod=2^{36}-599=68{,}719{,}476{,}137\) & Composite modulus with \(\sigmod=13p\). \\
+Rounding modulus & \(p=5{,}286{,}113{,}549\) & Prime factor \(p=\sigmod/13\). \\
+OMUF modulus & \(\omufmod=2^{36}-5=68{,}719{,}476{,}731\) & OMUF/partitioning modulus from the application. \\
+Proof modulus & \(\proofmod=2^{40}-195=1{,}099{,}511{,}627{,}581\) & Prime, and \(\proofmod\equiv5\pmod 8\). \\
+Recipient dimension & \(m=21\) & Number of ring coordinates of \(s_R,e_R,e_M\). \\
+Preimage output dimension & \(k=72\) & \(z_L,z_R\in R^k\), hence \(z\in R^{2k}\). \\
+Selection length & \(\ell=64\) & \(v=(v_{i,j})_{i,j\in[8]}\). \\
+Application bounds & \(B_{\mathrm{pre}}=100\), \(B_s=100\) & Bounds for \(z\) and \(s_R\). \\
+Error coefficient bound & \(\norm{e_R}_\infty,\norm{e_M}_\infty\le6\) & Coefficientwise rounding/error bound. \\
+Derived error bounds & \(B_r=B_M=220\) & \(\lceil6\sqrt{md}\rceil=220\). \\
+JL constants & \(C_1=337\), \(C_2=13/2\) & LNP approximate-range/JL constants. \\
+Projection rejection factor & \(\gamma_{\mathrm{proj}}=2.5\) & Gaussian mask multiplier. \\
+Projection tail factor & \(t=1.65\) & Chosen above the theoretical value \(1.64\). \\
+Final LNP rejection factors & \(\gamma_1=17\), \(\gamma_2=1.2\) & Ajtai-message and randomness response samplers. \\
+Constant-term repetitions & \(\tau_{\mathrm{cc}}=4\) & \(\lceil128/\log_2\proofmod\rceil=4\). \\
+Commitment rank & \(\kappa_{\mathrm{MSIS}}=2\) & Draft choice for compact Ajtai commitments. \\
+Binary/range placeholder & \(\mu_{\mathrm{draft}}=4\) & Value used in the current numerical projection calculation; see the warning below. \\
+Projection Gaussian width & \(s_{\mathrm{proj}}=15{,}720\) & Ceiling of the expression in \cref{eq:sproj}. \\
+Extracted short-vector bound & \(B_R=81{,}385\) & Ceiling of \(t s_{\mathrm{proj}}\sqrt{d/C_2}\). \\
+Verifier projection bound & \(B_{\mathrm{JL}}=207{,}492\) & \(\lceil\sqrt{C_2}B_R\rceil\). \\
+Compact commitment size & \(640\) bytes & \(2d\log_2\proofmod/8\). \\
+One appended ring element & \(320\) bytes & \(d\log_2\proofmod/8\). \\
+Projection response size & \(608\) bytes & \(256\) signed entries encoded in \(19\) bits. \\
+\bottomrule
+\end{longtable}
+
+The projection standard deviation is computed as
+\begin{equation}
+  s_{\mathrm{proj}}
+  =\left\lceil
+  \gamma_{\mathrm{proj}}
+  \sqrt{C_1\Bigl(
+     B_{\mathrm{pre}}^2+B_s^2+B_r^2+B_M^2
+     +(\mu_{\mathrm{proj}}+4)d
+  \Bigr)}
+  \right\rceil.
+  \label{eq:sproj}
+\end{equation}
+Using the draft value \(\mu_{\mathrm{proj}}=4\) gives
+\[
+  s_{\mathrm{proj}}=15{,}720,
+  \qquad
+  B_R=\left\lceil1.65\cdot15{,}720\sqrt{64/(13/2)}\right\rceil
+  =81{,}385.
+\]
+
+\begin{importantbox}[The value \(\mu_{\mathrm{draft}}=4\) is not a complete serialization count]
+The explicit range encoding creates many bit-plane ring elements.  For example,
+encoding both \(e_R\) and \(e_M\) coefficientwise with two four-bit
+representations creates \(8m=168\) ring elements for each error vector, before
+adding quotient/carry bits.  Therefore \(\mu_{\mathrm{proj}}=4\) can only be
+used if \(\mu\) denotes four \emph{logical blocks}, or if these bit planes are
+not part of the projected short vector.  The implementation must define the
+projected serialization explicitly, set \(\mu_{\mathrm{proj}}\) to its actual
+ring-coordinate dimension, and recompute \(s_{\mathrm{proj}},B_R\), and all
+no-wrap bounds.  The transcript below is written symbolically so that this
+recomputation changes parameters, not protocol logic.
+\end{importantbox}
+
+\subsection{No-wrap checks at the displayed draft parameters}
+
+With four explicit norm-slack polynomials, the full corrected coordinate count
+for the four bounded arithmetic blocks is
+\[
+  L_{\mathrm{full}}
+   =2k+m+m+m+\mu_{\mathrm{draft}}+4
+   =144+21+21+21+4+4=215.
+\]
+The current thesis calculation uses \(L_{\mathrm{draft}}=214\).  Both values
+satisfy the no-wrap inequalities.  Using the conservative value
+\(L_{\mathrm{full}}=215\), define
+\begin{align*}
+  T_1&:=B_R^2+\sqrt{L_{\mathrm{full}}d}\,B_R
+       <6.634\times10^9,\\
+  T_2&:=41dL_{\mathrm{full}}\sqrt{C_2}\,B_R
+       <1.171\times10^{11},\\
+  T_{\mathrm{pre}}&:=B_R^2+2B_{\mathrm{pre}}^2
+       =6{,}623{,}538{,}225,\\
+  T_r&:=B_R^2+2B_r^2
+       =6{,}623{,}615{,}025,\\
+  T_M&:=B_R^2+2B_M^2
+       =6{,}623{,}615{,}025,\\
+  T_s&:=B_R^2+2B_s^2
+       =6{,}623{,}538{,}225.
+\end{align*}
+Hence
+\begin{equation}
+  \max\{T_1,T_2,T_{\mathrm{pre}},T_r,T_M,T_s\}
+  =T_2<\proofmod,
+  \label{eq:no-wrap-summary}
+\end{equation}
+and \(\proofmod/T_2>9.39\).  The verifier checks
+\[
+  \norm{z_{\mathrm{JL}}}_2\le
+  \sqrt{C_2}B_R<207{,}492.
+\]
+
+\subsection{Parameters that are not fixed by the current sources}
+
+The following parameters cannot be read off from the thesis or the cited
+papers and must be selected by the implementation/security estimator:
+\begin{itemize}
+  \item the Ajtai/BDLOP opening dimension \(\kappa_A\) and all opening
+  distributions;
+  \item the exact coefficient bounds and binary lengths of every quotient/carry
+  vector \(\kappa_j\);
+  \item the actual projected binary/range dimension
+  \(\mu_{\mathrm{proj}}\);
+  \item the LNP challenge parameters
+  \((\kappa_{\mathrm{ch}},k_{\mathrm{ch}},\eta_{\mathrm{ch}})\);
+  \item the per-recursion LaBRADOR commitment ranks, bases
+  \((b,b_1,b_2)\), and decomposition lengths \((t_1,t_2)\), unless they are
+  generated by the reference parameter-selection code.
+\end{itemize}
+No concrete security claim should be attached to the numerical proof-size
+estimate until these values have been fixed and checked against Module-SIS and
+Module-LWE estimators.
+
+% =============================================================================
+\section{The application relation to be proved}
+% =============================================================================
+
+\subsection{Public instance and witness}
+
+Let the public instance be
+\begin{align*}
+ x_{\mathrm{app}}:=(&A,A_0,A_1,A_{\mathrm{td}},u,C,B_0,
+       (B_{1,i})_{i\in[8]},(B_{2,j})_{j\in[8]},\pk_R,M),
+\end{align*}
+where all dimensions are those of the NIBS construction.  In particular,
+\(A_0,A_1\in\Rsig^{m\times m}\), \(C\) maps the recipient public key to the
+preimage-equation output space, and \(A_{\mathrm{td}}\) and \(B_v\) act on the
+two halves of the pre-signature vector.
+
+For \(i,j\in[8]\), define the public selected-matrix blocks
+\[
+  D_{i,j}:=B_{1,i}G^{-1}(B_{2,j}),
+\]
+and for \(v=(v_{i,j})_{i,j\in[8]}\), define
+\begin{equation}
+  B_v:=B_0+\sum_{i=1}^{8}\sum_{j=1}^{8}v_{i,j}D_{i,j}.
+  \label{eq:Bv}
+\end{equation}
+
+The native witness is
+\[
+  \omega_{\mathrm{nat}}
+   =(s_R,e_R,z_L,z_R,v,e_M,s_1,\ldots,s_{\ell}),
+\]
+with \(s_0:=s_R\),
+\[
+  s_R,e_R,e_M,s_i\in R^m,\qquad
+  z_L,z_R\in R^k,\qquad
+  v\in\{0,1\}^{64}\setminus\{0^{64}\}.
+\]
+
+\subsection{Native equations over \(R_{q_{\mathrm{sig}}}\)}
+
+The relation accepts if all of the following equations and bounds hold.
+
+\paragraph{Recipient-key equation.}
+\begin{equation}
+  13\pk_R-A s_R-e_R=0
+  \qquad\text{in }\Rsig^m.
+  \label{eq:R1-native}
+\end{equation}
+
+\paragraph{Selected trapdoor-preimage equation.}
+\begin{equation}
+  A_{\mathrm{td}}z_L+B_vz_R-u+C(13\pk_R)=0
+  \qquad\text{in }\Rsig^k.
+  \label{eq:R2-native}
+\end{equation}
+The implementation convention for \(A_{\mathrm{td}}z_L\) and \(B_vz_R\)
+must be the same convention used by \textsf{SampleLeft}.  It yields \(k=72\)
+ring-coordinate equations.
+
+\paragraph{PRF recursion.}
+For \(i=0,\ldots,\ell-1\),
+\begin{equation}
+  s_{i+1}-\bigl(A_0+(A_1-A_0)v_i\bigr)s_i=0
+  \qquad\text{in }\Rsig^m.
+  \label{eq:R3-native}
+\end{equation}
+These are \(\ell m=64\cdot21=1{,}344\) ring-coordinate equations.
+
+\paragraph{Rounding equation.}
+\begin{equation}
+  s_{\ell}+e_M-13M=0
+  \qquad\text{in }\Rsig^m.
+  \label{eq:R4-native}
+\end{equation}
+This equation is the exact algebraic form of \(M=[s_\ell]_p\), together with
+the coefficientwise rounding-error bound on \(e_M\).
+
+\paragraph{Bounds and Boolean conditions.}
+\begin{align}
+  \norm{z_L\concat z_R}_2&\le B_{\mathrm{pre}}=100,
+  &\norm{s_R}_2&\le B_s=100,\label{eq:app-norm1}\\
+  \norm{e_R}_\infty&\le6,
+  &\norm{e_M}_\infty&\le6,\label{eq:app-norm2}\\
+  v_i(v_i-1)&=0\quad(i\in[64]),
+  &\sum_{i=1}^{64}v_i&\ge1.\label{eq:v-nonzero}
+\end{align}
+The coefficientwise error bounds imply
+\(\norm{e_R}_2,\norm{e_M}_2\le220\).
+
+\subsection{Equation count before LNP aggregation}
+
+The four equation families contain
+\begin{equation}
+  N_{\mathrm{full}}
+   =m+k+\ell m+m
+   =21+72+1{,}344+21
+   =1{,}458
+  \label{eq:Nfull}
+\end{equation}
+ring-coordinate equations.  The quotient/carry block introduced below must
+therefore contain at least one ring-coordinate quotient for each of these
+\(1{,}458\) outputs, unless several outputs are combined by a separately proven
+injective encoding.
+
+% =============================================================================
+\section{Lifting the application equations to the LNP proof modulus}
+% =============================================================================
+
+LNP is executed over \(\Rpi\), whereas
+\cref{eq:R1-native,eq:R2-native,eq:R3-native,eq:R4-native} are equations modulo
+\(\sigmod\).  It is not sufficient to reinterpret the same expressions modulo
+\(\proofmod\).  Every equation must be lifted through a bounded quotient.
+
+For each ring-coordinate equation \(F_j(\omega)=0\pmod{\sigmod}\), choose
+centered integer representatives and write
+\begin{equation}
+  \widetilde F_j(\omega)-\sigmod\,\kappa_j=0
+  \qquad\text{over }R,
+  \label{eq:integer-lift}
+\end{equation}
+for a quotient/carry polynomial \(\kappa_j\in R\).  The LNP relation contains
+the corresponding proof-ring equation
+\begin{equation}
+  \widetilde F_j(\omega)-\sigmod\,\kappa_j=0
+  \qquad\text{in }\Rpi.
+  \label{eq:proof-ring-lift}
+\end{equation}
+The quotient is represented with a certified signed-binary encoding
+\(\rho_{\kappa_j}\), and the relation checks both its reconstruction and the
+bitness of that encoding.
+
+\begin{importantbox}[Why quotient bounds are mandatory]
+If \(\kappa_j\) is unrestricted, then
+\cref{eq:proof-ring-lift} is satisfiable for arbitrary
+\(\widetilde F_j(\omega)\) and does not prove the original equation modulo
+\(\sigmod\).  The compiler must derive a coefficient bound
+\(B_{\kappa,j}\), prove
+\(\norm{\kappa_j}_\infty\le B_{\kappa,j}\), and verify that the centered
+integer value in \cref{eq:integer-lift} cannot wrap modulo \(\proofmod\).
+\end{importantbox}
+
+Let
+\[
+  \kappa:=(\kappa_1,\ldots,\kappa_{N_{\mathrm{full}}})
+\]
+be the complete quotient block.  The lifted full-ring equations are denoted
+\[
+  q_j(s^{(0)})=0\quad\text{in }\Rpi,
+  \qquad j\in[N_{\mathrm{full}}],
+\]
+where \(s^{(0)}\) is the ordered vector of all arithmetic witnesses, binary
+encodings, norm slacks, and quotient/carry witnesses used before the
+constant-coefficient masks are appended.
+
+% =============================================================================
+\section{Commitment layout for the exact LNP proof}
+% =============================================================================
+
+\subsection{Ajtai block for small and binary data}
+
+Let
+\begin{equation}
+  m_{\mathrm{bin}}
+   :=(v,\rho_R,\rho_M,\rho_\kappa,\rho_{\mathrm{aux}})
+  \label{eq:mbin}
+\end{equation}
+be the concatenation of:
+\begin{itemize}
+  \item the selector bits \(v\);
+  \item the positive/negative range bits for \(e_R\) and \(e_M\);
+  \item all signed quotient/carry bits;
+  \item the bits used for the nonzero-selector condition and any other bounded
+  auxiliary integer.
+\end{itemize}
+Sample a short Ajtai randomness \(u_A\) and set
+\begin{equation}
+  V_A=A_1m_{\mathrm{bin}}+A_2u_A
+  \qquad\text{in }\Rpi^{\kappa_{\mathrm{MSIS}}}.
+  \label{eq:Ajtai-commitment}
+\end{equation}
+The matrices \(A_1,A_2\) and the opening dimensions belong to the CRS.
+
+\subsection{One appendable BDLOP randomness}
+
+Sample one short vector \(u_{\mathrm{BD}}\).  The base commitment is
+\begin{equation}
+  t_A=A_2u_{\mathrm{BD}}.
+  \label{eq:BDLOP-base}
+\end{equation}
+For every appended message \(x\), with an independently sampled public matrix
+\(B_x\) of the appropriate dimensions, set
+\begin{equation}
+  t_x=B_xu_{\mathrm{BD}}+x.
+  \label{eq:BDLOP-append}
+\end{equation}
+All append operations use the \emph{same} \(u_{\mathrm{BD}}\).  The initial
+append list is
+\begin{equation}
+ \mathcal X_0=(s_R,e_R,z_L,z_R,S,e_M,\kappa,
+              \beta_{\mathrm{pre}},\beta_s,\beta_r,\beta_M,Y_R),
+ \label{eq:initial-appends}
+\end{equation}
+where \(S=(s_1,\ldots,s_\ell)\), the \(\beta\)'s are exact norm slacks, and
+\(Y_R\in\Rpi^4\) packs the \(256\) projection-mask integers.  Later rounds
+append \(g_1,\ldots,g_{\tau_{\mathrm{cc}}}\) and the quadratic garbage term
+\(g_Q\).
+
+\subsection{Coefficientwise error encoding}
+
+For \(x\in\{e_R,e_M\}\), every coefficient \(x[a][j]\) is certified to lie in
+\([-6,6]\) using bits
+\(\rho^{x,+}_{a,j,t},\rho^{x,-}_{a,j,t}\in\{0,1\}\), \(t=0,1,2,3\), and
+\begin{align}
+  x[a][j]+6&=\sum_{t=0}^{3}2^t\rho^{x,+}_{a,j,t},
+  \label{eq:range-plus}\\
+  6-x[a][j]&=\sum_{t=0}^{3}2^t\rho^{x,-}_{a,j,t}.
+  \label{eq:range-minus}
+\end{align}
+For one \(R^m\) error vector this produces \(8m=168\) bit-plane ring
+elements after packing over the degree-\(64\) coefficients.
+
+\subsection{Exact norm inequalities as equalities}
+
+For each bounded block
+\[
+  x\in\{z_L\concat z_R,s_R,e_R,e_M\}
+\]
+with bound \(B_x\), introduce a binary slack \(\beta_x\) representing
+\(B_x^2-\norm{x}_2^2\).  The relation checks
+\begin{align}
+  \norm{x}_2^2+\inner{\vecx{\beta_x}}{\powvec(B_x^2)}&=B_x^2,
+  \label{eq:norm-slack}\\
+  \inner{\vecx{\beta_x}}{\vecx{\beta_x}-\one}&=0.
+  \label{eq:norm-slack-bits}
+\end{align}
+By \cref{eq:ct-inner-product}, these become constant-coefficient quadratic
+relations in \(\Rpi\).  The no-wrap proof ensures that the equalities hold over
+\(\Z\), not merely modulo \(\proofmod\).
+
+The bitness of every bit vector \(b\), including \(v\), range bits, quotient
+bits, norm slacks, and nonzero-selector auxiliary bits, is expressed as
+\begin{equation}
+  \inner{\vecx b}{\vecx b-\one}=0.
+  \label{eq:generic-bitness}
+\end{equation}
+To enforce \(v\ne0\), introduce six bits \(\nu_0,\ldots,\nu_5\) and check
+\begin{equation}
+  \sum_{i=1}^{64}v_i
+  =1+\sum_{t=0}^{5}2^t\nu_t.
+  \label{eq:nonzero-selector}
+\end{equation}
+
+% =============================================================================
+\section{LNP challenge spaces}
+% =============================================================================
+
+The four verifier messages in the exact LNP transcript have distinct roles and
+must use domain-separated random-oracle expansions after Fiat--Shamir.
+
+\subsection{JL projection challenge}
+
+Let \(D_{\mathrm{proj}}\) be the integer coefficient dimension of the exact
+projected serialization \(x_{\mathrm{short}}\).  Each entry of
+\(R_{\mathrm{JL}}\) is sampled from the centered binomial distribution
+\[
+  \Bin_1:\qquad
+  \Pr[-1]=\Pr[1]=\tfrac14,\qquad \Pr[0]=\tfrac12.
+\]
+The verifier samples
+\begin{equation}
+  R_{\mathrm{JL}}\getsr
+  \Bin_1^{256\times D_{\mathrm{proj}}}.
+  \label{eq:JL-challenge}
+\end{equation}
+Using uniform \(\{0,1\}\) entries instead would change the mean and requires a
+new proof of the displayed JL constants.
+
+\subsection{Constant-coefficient aggregation challenge}
+
+For \(N_{\mathrm{cc}}\) constant-coefficient equations, the verifier samples
+\begin{equation}
+  \Gamma=(\gamma_{a,j})
+  \getsr\Z_{\proofmod}^{\tau_{\mathrm{cc}}\times N_{\mathrm{cc}}},
+  \qquad \tau_{\mathrm{cc}}=4.
+  \label{eq:Gamma-challenge}
+\end{equation}
+
+\subsection{Full equation aggregation challenge}
+
+After the masked constant-coefficient equations are fixed, the verifier samples
+\begin{equation}
+  \boldsymbol\mu\getsr
+  \Rpi^{N_{\mathrm{full}}+\tau_{\mathrm{cc}}}.
+  \label{eq:mu-challenge}
+\end{equation}
+This challenge is sampled before the prover constructs the final quadratic
+proof masks.
+
+\subsection{Final LNP challenge space}
+
+Let
+\[
+  S_\kappa:=\{c\in R:\norm{c}_\infty\le\kappa\},
+  \qquad
+  S_\kappa^\sigma:=\{c\in S_\kappa:\sigma(c)=c\}.
+\]
+For a power of two \(k_{\mathrm{ch}}\), define the LNP challenge set
+\begin{equation}
+ \calC_{\LNP}:=
+ \left\{
+ c\in S_{\kappa_{\mathrm{ch}}}^{\sigma}:
+ \sqrt[2k_{\mathrm{ch}}]{
+   \norm{\sigma(c^{k_{\mathrm{ch}}})c^{k_{\mathrm{ch}}}}_1
+ }
+ \le\eta_{\mathrm{ch}}
+ \right\}.
+ \label{eq:LNP-challenge-space}
+\end{equation}
+Because \(\sigma(c)=c\), a challenge has the form
+\begin{equation}
+ c=c_0+\sum_{i=1}^{d/2-1}c_i(X^i-X^{d-i}),
+ \label{eq:sigma-fixed-c}
+\end{equation}
+with \(d/2=32\) independent coefficients.  The bound in
+\cref{eq:LNP-challenge-space} controls the operator norm of multiplication by
+\(c\), and therefore the Gaussian widths used in rejection sampling.
+
+Since \(\proofmod\equiv5\pmod8\), a nonzero polynomial fixed by \(\sigma\) is
+invertible under the short-coefficient condition used by LNP.  In extraction,
+we need every nonzero difference \(c-c'\) of distinct accepted challenges to
+be invertible.
+
+\begin{importantbox}[A concrete \(d=64\) LNP challenge is still an implementation parameter]
+The example \((d,\kappa,\eta)=(128,2,59)\) in \cite{LNP22} cannot simply be
+copied to \(d=64\), because \(S_2^\sigma\) then contains only about \(2^{74}\)
+polynomials.  A natural starting point is
+\(\kappa_{\mathrm{ch}}=8\), for which
+\((2\kappa_{\mathrm{ch}}+1)^{32}=17^{32}>2^{130.7}\).
+The value \(\eta_{\mathrm{ch}}\) must be selected as a high empirical quantile
+of the exact bound in \cref{eq:LNP-challenge-space}, and all response widths
+and MSIS bounds must then be recomputed.  This calibration is not present in
+the current thesis and is therefore not silently assigned a final value here.
+\end{importantbox}
+
+% =============================================================================
+\section{Projection layer and constant-coefficient embedding}
+% =============================================================================
+
+\subsection{Projected short vector}
+
+Let \(x_{\mathrm{short}}\) be the exact ordered concatenation of every witness
+block whose integer smallness is used to rule out wrap-around.  At minimum it
+contains
+\[
+  z_L,z_R,s_R,e_R,e_M,
+  \beta_{\mathrm{pre}},\beta_s,\beta_r,\beta_M,
+\]
+and it must additionally contain any binary/range or quotient blocks whose
+smallness is not already guaranteed by a binding relation.  Let
+\(D_{\mathrm{proj}}\) be its coefficient dimension.
+
+The prover samples
+\[
+  y_R\getsr D_{\Z^{256},s_{\mathrm{proj}}}
+\]
+and packs the \(256\) integers into four elements
+\(Y_R\in\Rpi^4\), already appended as
+\(t_{Y_R}=B_{Y_R}u_{\mathrm{BD}}+Y_R\).
+After receiving \(R_{\mathrm{JL}}\), it computes
+\begin{equation}
+  z_{\mathrm{JL}}
+  =R_{\mathrm{JL}}\vecx{x_{\mathrm{short}}}+y_R
+  \quad\text{in }\Z_{\proofmod}^{256}.
+  \label{eq:projection-response}
+\end{equation}
+It applies the selected LNP rejection sampler and aborts on rejection.  The
+verifier checks
+\begin{equation}
+  \norm{z_{\mathrm{JL}}}_2\le B_{\mathrm{JL}}.
+  \label{eq:projection-norm-check}
+\end{equation}
+
+For each row \(r_a\) of \(R_{\mathrm{JL}}\), the relation includes a
+constant-coefficient equation proving
+\[
+  z_{\mathrm{JL},a}
+  =\inner{r_a}{\vecx{x_{\mathrm{short}}}}+y_{R,a}.
+\]
+Thus the projection contributes \(256\) constant-coefficient equations, but
+these are subsequently aggregated and do not cause a linear increase in the
+final LNP response size.
+
+\subsection{Constant-coefficient masks}
+
+Let
+\[
+  F_1(s^{(0)}),\ldots,F_{N_{\mathrm{cc}}}(s^{(0)})
+\]
+be all equations for which only the constant coefficient must vanish.  This
+family contains the exact-norm equations, all bitness and range equations,
+certified quotient-bound equations, the nonzero-selector equation, and the
+\(256\) projection-consistency equations.
+
+For \(a\in[\tau_{\mathrm{cc}}]\), the prover samples
+\[
+  g_a\getsr\{g\in\Rpi:\ct(g)=0\}
+\]
+and appends
+\[
+  t_{g_a}=B_{g_a}u_{\mathrm{BD}}+g_a.
+\]
+After receiving \(\Gamma\), it computes
+\begin{equation}
+  h_a=g_a+\sum_{j=1}^{N_{\mathrm{cc}}}
+       \gamma_{a,j}F_j(s^{(0)}).
+  \label{eq:ha}
+\end{equation}
+The verifier later checks \(\ct(h_a)=0\) for every \(a\in[4]\).
+
+% =============================================================================
+\section{Aggregation into one quadratic equation}
+% =============================================================================
+
+Let
+\[
+  q_1(s^{(0)}),\ldots,q_{N_{\mathrm{full}}}(s^{(0)})
+\]
+be the lifted full-ring equations and let
+\(\bar q_a(s^{(0)},g_a,h_a)=0\) be the full-ring equation corresponding to
+\cref{eq:ha}.  After receiving \(\boldsymbol\mu\), define
+\begin{equation}
+ Q_{\boldsymbol\mu}(s_Q)
+  :=\sum_{j=1}^{N_{\mathrm{full}}}\mu_jq_j(s^{(0)})
+   +\sum_{a=1}^{\tau_{\mathrm{cc}}}
+       \mu_{N_{\mathrm{full}}+a}\bar q_a(s^{(0)},g_a,h_a),
+ \label{eq:Qmu}
+\end{equation}
+where
+\[
+  s_Q:=(s^{(0)},g_1,\ldots,g_{\tau_{\mathrm{cc}}}),
+  \qquad
+  \bar s_Q:=(s_Q,\sigma(s_Q)).
+\]
+Every term in \cref{eq:Qmu} has degree at most two.  Therefore the prover and
+verifier can derive public/transcript-dependent \(E,e,e_0\) such that
+\begin{equation}
+  Q_{\boldsymbol\mu}(s_Q)
+  =\bar s_Q^{\transpose}E\bar s_Q+e^{\transpose}\bar s_Q+e_0.
+  \label{eq:quadratic-matrix-form}
+\end{equation}
+The desired aggregated relation is
+\begin{equation}
+  \bar s_Q^{\transpose}E\bar s_Q+e^{\transpose}\bar s_Q+e_0=0
+  \qquad\text{in }\Rpi.
+  \label{eq:one-quadratic-relation}
+\end{equation}
+
+\subsection{Factorization only after the aggregation challenge}
+
+The quadratic circuit should be generated from the already aggregated
+\(Q_{\boldsymbol\mu}\), not by first compiling every source equation and then
+summing the resulting products.
+
+For the selected-matrix block, the \(72\) output equations aggregate as
+\[
+ \sum_{a=1}^{72}\mu_aQ^{(2)}_a
+ =L^{(2)}_{\boldsymbol\mu}(z)
+  +\sum_{r=1}^{64}v_r
+    \left(\sum_{a=1}^{72}\mu_aD_{r,a}(z_R)\right),
+\]
+so this block requires one ring multiplication per selector: \(64\), not
+\(64\cdot72\).
+
+For PRF round \(i\),
+\[
+ \sum_{a=1}^{21}\mu_{i,a}Q^{(3)}_{i,a}
+ =L^{(3)}_{\boldsymbol\mu,i}(s_i,s_{i+1},\kappa)
+  -v_i\left(\sum_{a=1}^{21}\mu_{i,a}M_{i,a}(s_i)\right),
+\]
+so each PRF round requires one ring multiplication.  Across all \(64\) rounds,
+\(64\cdot21=1{,}344\) source products collapse to \(64\) aggregated products.
+This is an exact algebraic refactoring of the same polynomial
+\(Q_{\boldsymbol\mu}\); it does not modify an LNP challenge or soundness
+parameter.
+
+% =============================================================================
+\section{Final quadratic proof and complete nine-message LNP transcript}
+% =============================================================================
+
+\subsection{Masks for the two commitment systems}
+
+The prover samples
+\begin{align*}
+ y_{A,1}&\getsr D_{s_1}^{\dim(m_{\mathrm{bin}})},
+ &y_{A,2}&\getsr D_{s_2}^{\kappa_A},
+ &y_u&\getsr D_{s_2}^{\kappa_A}.
+\end{align*}
+It computes
+\begin{align}
+  w_A&:=A_1y_{A,1}+A_2y_{A,2},
+  \label{eq:wA}\\
+  w_u&:=A_2y_u.
+  \label{eq:wu}
+\end{align}
+
+Construct a mask vector \(y_Q\) having the same coordinate layout as \(s_Q\):
+\begin{itemize}
+  \item the Ajtai-message coordinate uses \(y_{A,1}\);
+  \item an appended BDLOP message \(x\), committed as
+  \(t_x=B_xu_{\mathrm{BD}}+x\), uses the mask \(-B_xy_u\).
+\end{itemize}
+Set \(\bar y_Q=(y_Q,\sigma(y_Q))\), and define
+\begin{align}
+  g_Q&:=\bar s_Q^{\transpose}(E+E^{\transpose})\bar y_Q
+       +e^{\transpose}\bar y_Q,
+  \label{eq:gQ}\\
+  t_Q&:=B_Qu_{\mathrm{BD}}+g_Q,
+  \label{eq:tQ}\\
+  v_Q&:=\bar y_Q^{\transpose}E\bar y_Q+B_Qy_u.
+  \label{eq:vQ}
+\end{align}
+
+\subsection{Final challenge and responses}
+
+After receiving \(c\getsr\calC_{\LNP}\), the prover computes
+\begin{align}
+  z_{A,1}&:=c\,m_{\mathrm{bin}}+y_{A,1},
+  \label{eq:zA1}\\
+  z_{A,2}&:=c\,u_A+y_{A,2},
+  \label{eq:zA2}\\
+  z_u&:=c\,u_{\mathrm{BD}}+y_u.
+  \label{eq:zu}
+\end{align}
+It runs the designated rejection samplers with factors \(\gamma_1=17\) and
+\(\gamma_2=1.2\), and aborts if either sampler rejects.
+
+For each BDLOP-appended message \(x\), the verifier derives the corresponding
+masked coordinate
+\begin{equation}
+  z_x:=ct_x-B_xz_u=cx-B_xy_u=cx+y_x.
+  \label{eq:derive-zx}
+\end{equation}
+Combining these coordinates with \(z_{A,1}\) produces
+\(z_Q=cs_Q+y_Q\), and
+\(\bar z_Q=(z_Q,\sigma(z_Q))\).
+
+\subsection{Nine-message interactive transcript}
+
+\begin{protocolbox}[Exact interactive LNP transcript for the NIBS relation]
+\begin{longtable}{@{}p{0.07\textwidth}p{0.09\textwidth}p{0.76\textwidth}@{}}
+\toprule
+Move & Sender & Message and computation \\
+\midrule
+1 & Prover &
+Send
+\[
+ a_1=(V_A,t_A,t_{s_R},t_{e_R},t_{z_L},t_{z_R},t_S,t_{e_M},
+      t_\kappa,t_{\beta_{\mathrm{pre}}},t_{\beta_s},t_{\beta_r},t_{\beta_M},t_{Y_R}).
+\]
+All BDLOP values use the same opening randomness \(u_{\mathrm{BD}}\). \\
+\addlinespace
+2 & Verifier &
+Sample and send
+\(R_{\mathrm{JL}}\getsr\Bin_1^{256\times D_{\mathrm{proj}}}\). \\
+\addlinespace
+3 & Prover &
+Compute \(z_{\mathrm{JL}}\) as in \cref{eq:projection-response}, apply rejection
+sampling, append \(g_1,\ldots,g_4\), and send
+\[
+ a_2=(z_{\mathrm{JL}},t_{g_1},\ldots,t_{g_4}).
+\] \\
+\addlinespace
+4 & Verifier &
+Sample and send
+\(\Gamma\getsr\Z_{\proofmod}^{4\times N_{\mathrm{cc}}}\). \\
+\addlinespace
+5 & Prover &
+Compute \(h_a\) by \cref{eq:ha} and send
+\[
+ a_3=(h_1,h_2,h_3,h_4).
+\] \\
+\addlinespace
+6 & Verifier &
+Sample and send
+\(\boldsymbol\mu\getsr\Rpi^{N_{\mathrm{full}}+4}\). \\
+\addlinespace
+7 & Prover &
+Derive \(E,e,e_0\), sample the quadratic-proof masks, compute
+\(w_A,w_u,t_Q,v_Q\), and send
+\[
+ a_4=(w_A,w_u,t_Q,v_Q).
+\] \\
+\addlinespace
+8 & Verifier &
+Sample and send \(c\getsr\calC_{\LNP}\). \\
+\addlinespace
+9 & Prover &
+Compute \((z_{A,1},z_{A,2},z_u)\), apply rejection sampling, and send
+\[
+ a_5=(z_{A,1},z_{A,2},z_u).
+\] \\
+\bottomrule
+\end{longtable}
+\end{protocolbox}
+
+\subsection{Complete verifier checks}
+
+The verifier accepts if all of the following checks pass.
+
+\paragraph{Projection and constant coefficients.}
+\begin{align}
+  \norm{z_{\mathrm{JL}}}_2&\le B_{\mathrm{JL}},
+  \label{eq:V-proj}\\
+  \ct(h_a)&=0\qquad(a\in[4]).
+  \label{eq:V-ct}
+\end{align}
+
+\paragraph{Ajtai opening equation.}
+\begin{equation}
+  f_1:=cV_A+w_A-A_1z_{A,1}-A_2z_{A,2}=0.
+  \label{eq:f1}
+\end{equation}
+
+\paragraph{BDLOP base-opening equation.}
+\begin{equation}
+  f_2:=ct_A+w_u-A_2z_u=0.
+  \label{eq:f2}
+\end{equation}
+
+\paragraph{Quadratic equation.}
+Define
+\begin{equation}
+  f:=ct_Q-B_Qz_u=cg_Q-B_Qy_u.
+  \label{eq:f-correction}
+\end{equation}
+Then check
+\begin{equation}
+  f_3:=
+  \bar z_Q^{\transpose}E\bar z_Q
+  +c\,e^{\transpose}\bar z_Q
+  +c^2e_0-f-v_Q=0.
+  \label{eq:f3}
+\end{equation}
+Indeed, using \(z_Q=cs_Q+y_Q\) and
+\cref{eq:one-quadratic-relation}, the left-hand side expands to zero.
+
+\paragraph{Response norm.}
+Check
+\begin{equation}
+  \norm{z_{A,1}\concat z_{A,2}\concat z_u}_2
+  \le B_{\mathrm{resp}},
+  \label{eq:response-bound}
+\end{equation}
+where \(B_{\mathrm{resp}}\) is derived from the final selected challenge norm,
+Gaussian widths, response dimensions, and the required tail probability.  It is
+not the same quantity as the application bound \(B_{\mathrm{pre}}=100\).
+
+% =============================================================================
+\section{Fiat--Shamir form and transcript serialization}
+% =============================================================================
+
+Use independent domain-separated expanders
+\(H_{\mathrm{JL}},H_{\mathrm{cc}},H_{\mathrm{agg}},H_{\LNP}\).  For a context
+string
+\[
+  \mathsf{ctx}=\mathsf{encode}(\mathsf{protocol\_id},\mathsf{crs\_id},x_{\mathrm{app}}),
+\]
+define
+\begin{align*}
+ R_{\mathrm{JL}}
+   &=\mathsf{Expand}_{\mathrm{JL}}
+     \bigl(H_{\mathrm{JL}}(\mathsf{ctx},a_1)\bigr),\\
+ \Gamma
+   &=\mathsf{Expand}_{\mathrm{cc}}
+     \bigl(H_{\mathrm{cc}}(\mathsf{ctx},a_1,R_{\mathrm{JL}},a_2)\bigr),\\
+ \boldsymbol\mu
+   &=\mathsf{Expand}_{\mathrm{agg}}
+     \bigl(H_{\mathrm{agg}}(\mathsf{ctx},a_1,R_{\mathrm{JL}},a_2,
+       \Gamma,a_3)\bigr),\\
+ c
+   &=\mathsf{Sample}_{\calC_{\LNP}}
+     \bigl(H_{\LNP}(\mathsf{ctx},a_1,R_{\mathrm{JL}},a_2,
+       \Gamma,a_3,\boldsymbol\mu,a_4)\bigr).
+\end{align*}
+All vectors, matrices, signs, dimensions, and ring coefficients must have a
+canonical byte encoding.  Challenges are recomputed by the verifier and are
+not trusted as independent proof fields.
+
+% =============================================================================
+\section{Composition-friendly LNP with compressed intermediate flows}
+% =============================================================================
+
+The uncompressed messages \(a_1,a_3,a_4\) scale with the statement and witness.
+Following \cite{DPKNRT25}, replace each by a compact, non-hiding Ajtai
+commitment to its binary decomposition.
+
+\subsection{Compressing commitment}
+
+For a ring-vector message \(m\in\Rpi^n\), define
+\begin{equation}
+  \CLaB.\Com(m):=A_{\CLaB}\,m^*,
+  \qquad
+  A_{\CLaB}\in\Rpi^{\kappa_{\mathrm{MSIS}}\times n\lceil\log_2\proofmod\rceil}.
+  \label{eq:CLaB}
+\end{equation}
+This commitment is deterministic and non-hiding.  It is used only to bind a
+large transcript flow to the value opened inside LaBRADOR.  For
+\(\kappa_{\mathrm{MSIS}}=2,d=64,\log_2\proofmod=40\), its output has size
+\(640\) bytes, independent of \(n\).
+
+To avoid the naming collision between the Ajtai message in
+\cref{eq:mbin} and the first compressed transcript flow, define
+\begin{align*}
+ m_{\mathrm{flow},A}&:=(t_A,t_{s_R},t_{e_R},t_{z_L},t_{z_R},t_S,t_{e_M},
+  t_\kappa,t_{\beta_{\mathrm{pre}}},t_{\beta_s},t_{\beta_r},t_{\beta_M},t_{Y_R}),\\
+ m_{\mathrm{flow},h}&:=(h_1,h_2,h_3,h_4),\\
+ m_{\mathrm{flow},w}&:=(w_A,w_u,t_Q,v_Q),
+\end{align*}
+and
+\begin{equation}
+  x_A:=\CLaB.\Com(m_{\mathrm{flow},A}),\quad
+  x_h:=\CLaB.\Com(m_{\mathrm{flow},h}),\quad
+  x_w:=\CLaB.\Com(m_{\mathrm{flow},w}).
+  \label{eq:three-flow-commitments}
+\end{equation}
+
+The public LNP transcript now sends \((V_A,x_A)\),
+\((z_{\mathrm{JL}},t_{g_1},\ldots,t_{g_4})\), \(x_h\), and \(x_w\), while
+the openings of \(x_A,x_h,x_w\) are moved into the final witness.
+
+\subsection{Complete LaBRADOR boundary relation}
+
+Let \(x_{\mathrm{bdry}}\) be the public view up to the final LNP response,
+including
+\[
+  x_{\mathrm{app}},V_A,x_A,z_{\mathrm{JL}},(t_{g_a})_{a\in[4]},x_h,x_w
+\]
+and all Fiat--Shamir challenges recomputed from these fields.  Let
+\begin{align*}
+ w_{\mathrm{bdry}}:=(&m_{\mathrm{flow},A},m_{\mathrm{flow},h},m_{\mathrm{flow},w},
+ z_{A,1},z_{A,2},z_u,\\
+ &m_{\mathrm{flow},A}^*,m_{\mathrm{flow},h}^*,m_{\mathrm{flow},w}^*).
+\end{align*}
+The complete relation \(\calR_{\mathrm{bdry}}\) accepts if and only if:
+\begin{enumerate}
+  \item all three equations in \cref{eq:three-flow-commitments} hold and all
+  supplied decompositions are binary and reconstruct the opened messages;
+  \item the opened messages parse with the exact dimensions fixed by the CRS;
+  \item the projection norm check \cref{eq:V-proj} and all four constant-term
+  checks \cref{eq:V-ct} hold;
+  \item \(E,e,e_0,z_Q\) are recomputed from the opened transcript exactly as in
+  the LNP verifier;
+  \item \(f_1=f_2=f_3=0\) as in
+  \cref{eq:f1,eq:f2,eq:f3};
+  \item the response norm check \cref{eq:response-bound} holds.
+\end{enumerate}
+In set notation,
+\begin{equation}
+ \calR_{\mathrm{bdry}}
+ =\left\{(x_{\mathrm{bdry}},w_{\mathrm{bdry}}):
+ \begin{array}{l}
+ \mathsf{Open}_{\CLaB}(x_A,m_{\mathrm{flow},A})=1,\\
+ \mathsf{Open}_{\CLaB}(x_h,m_{\mathrm{flow},h})=1,\\
+ \mathsf{Open}_{\CLaB}(x_w,m_{\mathrm{flow},w})=1,\\
+ \mathsf{LNPVerifyAll}(x_{\mathrm{bdry}},w_{\mathrm{bdry}})=1
+ \end{array}
+ \right\}.
+ \label{eq:boundary-relation}
+\end{equation}
+The abbreviated relation containing only \(f_1,f_2,f_3\), the response norm,
+and the three compact openings is sufficient only if the projection,
+constant-term, parsing, and challenge-recomputation checks are enforced
+elsewhere.  The complete relation above leaves no such implicit checks.
+
+% =============================================================================
+\section{LaBRADOR principal relation}
+% =============================================================================
+
+Let \(n\ge1\), \(r\ge1\), and \(\beta>0\).  A LaBRADOR statement consists of
+two families of quadratic dot-product functions:
+\begin{align*}
+ f(s_1,\ldots,s_r)
+ &=\sum_{i,j=1}^{r}a_{i,j}\inner{s_i}{s_j}
+   +\sum_{i=1}^{r}\inner{\varphi_i}{s_i}-b,
+   &&f\in\calF,\\
+ f^0(s_1,\ldots,s_r)
+ &=\sum_{i,j=1}^{r}a^0_{i,j}\inner{s_i}{s_j}
+   +\sum_{i=1}^{r}\inner{\varphi_i^0}{s_i}-b_0,
+   &&f^0\in\calF^0.
+\end{align*}
+The principal relation is
+\begin{equation}
+ \calR_{\LaB}:=
+ \left\{
+ ((\calF,\calF^0,\beta),(s_1,\ldots,s_r)):
+ \begin{array}{l}
+ f(s_1,\ldots,s_r)=0\quad\forall f\in\calF,\\
+ \ct(f^0(s_1,\ldots,s_r))=0\quad\forall f^0\in\calF^0,\\
+ \sum_{i=1}^{r}\norm{s_i}_2^2\le\beta^2
+ \end{array}
+ \right\}.
+ \label{eq:LaB-principal}
+\end{equation}
+
+The binary R1CS obtained from \cref{eq:boundary-relation} is reduced to an
+instance of \cref{eq:LaB-principal}.  Binary coefficient constraints,
+compact-commitment equations, linear verifier equations, and the final
+quadratic equation are all expressible as full-ring or constant-coefficient
+dot-product constraints.  The LaBRADOR proof then recursively proves knowledge
+of a short solution to this principal relation.
+
+% =============================================================================
+\section{LaBRADOR challenge space}
+% =============================================================================
+
+LaBRADOR requires a challenge set \(\calC_{\LaB}\subset\Rpi\) such that every
+difference of two distinct challenges is invertible and
+\begin{equation}
+  \norm{c}_2^2\le\tau_{\LaB},
+  \qquad
+  \norm{c}_{\op}\le T_{\op}
+  \qquad(c\in\calC_{\LaB}).
+  \label{eq:LaB-challenge-bounds}
+\end{equation}
+For the degree-\(64\) instantiation of \cite{BS23}, a challenge has
+\begin{itemize}
+  \item \(23\) zero coefficients;
+  \item \(31\) coefficients in \(\{\pm1\}\);
+  \item \(10\) coefficients in \(\{\pm2\}\).
+\end{itemize}
+Thus
+\[
+  \tau_{\LaB}:=\norm{c}_2^2=31+4\cdot10=71,
+  \qquad \norm{c}_2=\sqrt{71}.
+\]
+Rejection sampling retains only challenges with \(\norm{c}_{\op}<15\), so use
+\(T_{\op}=15\).  The set contains more than \(2^{128}\) elements, and the
+short-difference condition gives invertibility in the selected ring.
+
+% =============================================================================
+\section{One nine-message LaBRADOR recursion level}
+% =============================================================================
+
+Suppose the current principal-relation witness is
+\(s_1,\ldots,s_r\in\Rpi^n\).  Let
+\(A\in\Rpi^{\kappa\times n}\) be the inner commitment matrix.  Let
+\((b_1,t_1)\) and \((b_2,t_2)\) be the decomposition parameters for arbitrary
+and short garbage values, respectively.
+
+\subsection{Preparatory values}
+
+For every \(i\in[r]\), compute the inner commitment
+\[
+  t_i=As_i
+    =\sum_{a=0}^{t_1-1}t_i^{(a)}b_1^a.
+\]
+For every \(1\le i\le j\le r\), compute
+\begin{align*}
+ g_{i,j}&:=\inner{s_i}{s_j}
+        =\sum_{a=0}^{t_2-1}g_{i,j}^{(a)}b_2^a,\\
+ h_{i,j}&:=\frac12\left(
+          \inner{\varphi_i}{s_j}+\inner{\varphi_j}{s_i}
+        \right)
+        =\sum_{a=0}^{t_1-1}h_{i,j}^{(a)}b_1^a.
+\end{align*}
+The first outer commitment is
+\begin{equation}
+ u_1=
+ \sum_{i=1}^{r}\sum_{a=0}^{t_1-1}B_{i,a}t_i^{(a)}
+ +\sum_{1\le i\le j\le r}\sum_{a=0}^{t_2-1}C_{i,j,a}g_{i,j}^{(a)}.
+ \label{eq:LaB-u1}
+\end{equation}
+The second outer commitment, formed later, is
+\begin{equation}
+ u_2=
+ \sum_{1\le i\le j\le r}\sum_{a=0}^{t_1-1}D_{i,j,a}h_{i,j}^{(a)}.
+ \label{eq:LaB-u2}
+\end{equation}
+
+\subsection{Nine messages}
+
+\begin{protocolbox}[One LaBRADOR base-protocol execution]
+\begin{longtable}{@{}p{0.07\textwidth}p{0.09\textwidth}p{0.76\textwidth}@{}}
+\toprule
+Move & Sender & Message and computation \\
+\midrule
+1 & Prover & Send the first outer commitment \(u_1\) from
+\cref{eq:LaB-u1}. \\
+\addlinespace
+2 & Verifier & For every \(i\in[r]\), sample a JL matrix
+\(\Pi_i\getsr\Bin_1^{256\times nd}\) and send
+\((\Pi_1,\ldots,\Pi_r)\). \\
+\addlinespace
+3 & Prover & Compute
+\[
+ p=\sum_{i=1}^{r}\Pi_i\vecx{s_i}\in\Z_{\proofmod}^{256}
+\]
+and send \(p\).  The verifier immediately checks the prescribed projection
+norm. \\
+\addlinespace
+4 & Verifier & Let \(L=\abs{\calF^0}\) and
+\(q_0=\lceil128/\log_2\proofmod\rceil\).  Sample and send
+\[
+ (\psi^{(a)},\omega^{(a)})
+ \getsr\Z_{\proofmod}^{L}\times\Z_{\proofmod}^{256},
+ \qquad a\in[q_0].
+\] \\
+\addlinespace
+5 & Prover & Aggregate the \(\calF^0\) relations and projection equations into
+full-ring equations \(f^{\prime\prime(a)}\).  Extend the required constant
+terms to full polynomials \(b^{\prime\prime(a)}\), and send
+\((b^{\prime\prime(1)},\ldots,b^{\prime\prime(q_0)})\). \\
+\addlinespace
+6 & Verifier & Sample and send
+\[
+ \alpha\getsr\Rpi^{\abs{\calF}},
+ \qquad
+ \beta\getsr\Rpi^{q_0}.
+\]
+These challenges aggregate all full-ring functions into one function
+\(F\). \\
+\addlinespace
+7 & Prover & Compute the linear garbage values \(h_{i,j}\), their
+base-\(b_1\) decompositions, form \(u_2\) as in \cref{eq:LaB-u2}, and send
+\(u_2\). \\
+\addlinespace
+8 & Verifier & Sample and send independently
+\(c_1,\ldots,c_r\getsr\calC_{\LaB}\). \\
+\addlinespace
+9 & Prover & Send
+\[
+ z_{\mathrm{fold}}=\sum_{i=1}^{r}c_is_i
+\]
+together with all decomposed inner commitments and garbage openings
+\((t_i^{(a)}),(g_{i,j}^{(a)}),(h_{i,j}^{(a)})\). \\
+\bottomrule
+\end{longtable}
+\end{protocolbox}
+
+\subsection{Verification equations}
+
+Let
+\[
+ F(s_1,\ldots,s_r)
+ =\sum_{i,j=1}^{r}a_{i,j}\inner{s_i}{s_j}
+  +\sum_{i=1}^{r}\inner{\varphi_i}{s_i}-b
+\]
+be the final aggregate.  The verifier checks:
+\begin{enumerate}
+  \item all constant coefficients of \(b^{\prime\prime(a)}\) are the values
+  determined by \(p,\psi^{(a)},\omega^{(a)}\);
+  \item symmetry \(g_{i,j}=g_{j,i}\) and \(h_{i,j}=h_{j,i}\);
+  \item every base decomposition reconstructs its parent value and all low
+  digits are in their centered intervals;
+  \item the consolidated target norm bound
+  \begin{equation}
+    \norm{z_{\mathrm{fold}}^{(0)}}_2^2
+    +\norm{z_{\mathrm{fold}}^{(1)}}_2^2
+    +\norm{t}_2^2+\norm{g}_2^2+\norm{h}_2^2
+    \le(\beta')^2;
+    \label{eq:LaB-consolidated-norm}
+  \end{equation}
+  \item the amortized opening equation
+  \begin{equation}
+    A z_{\mathrm{fold}}=\sum_{i=1}^{r}c_it_i;
+    \label{eq:LaB-amortized-opening}
+  \end{equation}
+  \item the three garbage/dot-product identities
+  \begin{align}
+   \inner{z_{\mathrm{fold}}}{z_{\mathrm{fold}}}
+     &=\sum_{i,j=1}^{r}g_{i,j}c_ic_j,
+     \label{eq:LaB-g1}\\
+   \sum_{i=1}^{r}\inner{\varphi_i}{z_{\mathrm{fold}}}c_i
+     &=\sum_{i,j=1}^{r}h_{i,j}c_ic_j,
+     \label{eq:LaB-g2}\\
+   \sum_{i,j=1}^{r}a_{i,j}g_{i,j}+\sum_{i=1}^{r}h_{i,i}-b
+     &=0;
+     \label{eq:LaB-g3}
+  \end{align}
+  \item both outer commitment opening equations
+  \cref{eq:LaB-u1,eq:LaB-u2}.
+\end{enumerate}
+These checks are again dot-product constraints plus one norm relation, so the
+last prover message is a witness for another instance of
+\cref{eq:LaB-principal}.
+
+% =============================================================================
+\section{Recursion, decomposition, and norm propagation}
+% =============================================================================
+
+Write
+\begin{equation}
+  z_{\mathrm{fold}}
+  =z_{\mathrm{fold}}^{(0)}+b z_{\mathrm{fold}}^{(1)}
+  \label{eq:z-decomposition}
+\end{equation}
+using centered residues modulo a base \(b\ge2\).  Concatenate
+\[
+  v_{\mathrm{aux}}:=t\concat g\concat h\in\Rpi^{m_{\mathrm{aux}}},
+  \qquad
+  m_{\mathrm{aux}}
+  =rt_1\kappa+(t_1+t_2)\frac{r^2+r}{2}.
+\]
+Split each of \(z_{\mathrm{fold}}^{(0)}\) and
+\(z_{\mathrm{fold}}^{(1)}\) into \(\nu\) vectors, and split
+\(v_{\mathrm{aux}}\) into \(\mu_{\mathrm{split}}\) vectors.  After zero
+padding, the next relation has
+\begin{equation}
+ n'=\max\left\{\left\lceil\frac{n}{\nu}\right\rceil,
+                 \left\lceil\frac{m_{\mathrm{aux}}}{\mu_{\mathrm{split}}}
+                 \right\rceil\right\},
+ \qquad
+ r'=2\nu+\mu_{\mathrm{split}}.
+ \label{eq:next-rank-multiplicity}
+\end{equation}
+Parameters are chosen so that
+\(n/\nu\approx m_{\mathrm{aux}}/\mu_{\mathrm{split}}\), avoiding excessive
+zero padding.
+
+Let the coefficient standard deviation of the current witness be
+\(s=\beta/\sqrt{rnd}\), and let
+\(\tau_{\LaB}=71\).  The heuristic parameter rules of \cite{BS23} are
+\begin{align}
+ b&\approx\left\lfloor\sqrt{\sqrt{12r\tau_{\LaB}}\,s}\right\rceil,
+ \label{eq:base-b}\\
+ t_1&=\left\lceil\frac{\log\proofmod}{\log b}\right\rceil,
+ \qquad b_1=\left\lceil\proofmod^{1/t_1}\right\rceil,
+ \label{eq:t1}\\
+ t_2&=\left\lceil
+ \frac{\log(\sqrt{24nd\,s^2})}{\log b}
+ \right\rceil,
+ \qquad
+ b_2=\left\lceil(\sqrt{24nd\,s^2})^{1/t_2}\right\rceil,
+ \label{eq:t2}\\
+ \gamma&=\beta\sqrt{\tau_{\LaB}},
+ \label{eq:gamma-lab}\\
+ \gamma_1^2&=\frac{b_1^2t_1}{12}r\kappa d
+       +\frac{b_2^2t_2}{12}\frac{r^2+r}{2}d,
+ \label{eq:gamma1-lab}\\
+ \gamma_2^2&=\frac{b_1^2t_1}{12}\frac{r^2+r}{2}d,
+ \label{eq:gamma2-lab}\\
+ (\beta')^2&=\frac{2}{b^2}\gamma^2+\gamma_1^2+\gamma_2^2.
+ \label{eq:beta-prime}
+\end{align}
+The heuristic quantities must be checked against the vectors actually produced
+by the implementation.  If a vector exceeds the predicted norm, the prover
+must restart or increase the commitment rank/bounds; soundness must never rely
+only on the heuristic estimate.
+
+The final recursion level omits outer commitments and uses the interactive
+``fewer garbage polynomials'' optimization, because all openings are sent at
+that level.  This is the reason the final level contributes most of the proof
+bytes in the concrete schedule.
+
+% =============================================================================
+\section{Composition, exactness, and predicate special soundness}
+% =============================================================================
+
+Define the interactive composed protocol \(\LNPLab\) as follows:
+\begin{enumerate}
+  \item run \(\LNPcom\) through the point at which its final witness
+  \(w_{\mathrm{bdry}}\) would be sent;
+  \item instead of sending \(w_{\mathrm{bdry}}\), run recursively composed
+  LaBRADOR to prove
+  \((x_{\mathrm{bdry}},w_{\mathrm{bdry}})\in\calR_{\mathrm{bdry}}\);
+  \item apply Fiat--Shamir to the complete public-coin composition.
+\end{enumerate}
+The final NIZK is
+\[
+  \FS[\LNPLab].
+\]
+
+Both LNP and one LaBRADOR level are nine-message public-coin protocols.  In the
+coordinate-wise predicate-special-soundness notation used by the formal
+analysis, a LaBRADOR level has
+\[
+  K=(2,2,2,3),\qquad R=(1,1,1,r).
+\]
+After \(t\) recursive levels, the predicate system is the LNP predicate system
+followed by \(t\) copies of the LaBRADOR predicate system.  The binding branch
+is a union of Module-SIS relations arising from the LNP commitments, the three
+compressing commitments, and each LaBRADOR level.
+
+The intended application witness remains \emph{exact}: when extraction follows
+the non-binding branch, LNP recovers a witness satisfying the original norm
+bounds and integer no-wrap conditions.  LaBRADOR's JL norm slack affects the
+short vectors appearing in the alternative binding/MSIS relations and the
+recursive proof witness; it does not replace the exact application relation by
+a relaxed one.
+
+For \(N\) accepting proofs, the multi-proof extractor loses linearly in \(N\):
+if \(\kappa\) is the single-proof knowledge error of the full predicate system,
+then
+\[
+  \kappa_{\LNPLab,N}=N\kappa.
+\]
+
+% =============================================================================
+\section{Concrete recursive schedule and draft proof-size estimate}
+% =============================================================================
+
+The current thesis reports the following schedule for a boundary circuit below
+\(2^{23}\) binary constraints.
+
+\begin{center}
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+Level & Rank \(n\) & Multiplicity \(r\) & Witness size (KiB) & Output (KiB)\\
+\midrule
+R1CS \(\to\calR_{\LaB}\) & -- & -- & 1024.00 & 0.6250\\
+1 & 27,595 & 38 & 8192.00 & 4.2046\\
+2 & 3,450 & 21 & 2235.37 & 4.2037\\
+3 & 1,150 & 10 & 423.65 & 3.5613\\
+4 & 575 & 7 & 147.75 & 3.5372\\
+5 & 290 & 7 & 73.27 & 3.5191\\
+6 & 290 & 5 & 53.13 & 4.1388\\
+7 & 153 & 4 & 40.39 & 30.7189\\
+\midrule
+\multicolumn{4}{r}{Recursive contribution} & 54.5087\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With \(\kappa_{\mathrm{MSIS}}=2\), the displayed auxiliary communication is
+\begin{align*}
+  3\text{ compact transcript commitments}
+    &=3\cdot640\text{ bytes}=1.875\text{ KiB},\\
+  4\text{ constant-term mask commitments}
+    &=4\cdot320\text{ bytes}=1.250\text{ KiB},\\
+  z_{\mathrm{JL}}
+    &=608\text{ bytes}=0.59375\text{ KiB}.
+\end{align*}
+Therefore the draft estimate is
+\begin{equation}
+  \abs{\pi_{\LNPLab}}
+  \approx54.5087+1.875+1.250+0.59375
+  =58.22745\text{ KiB}.
+  \label{eq:draft-proof-size}
+\end{equation}
+This accounting treats all public-coin challenges as 128-bit seeds expanded by
+Fiat--Shamir and follows the thesis's current boundary-circuit estimate of
+\(7{,}600{,}000<2^{23}\) binary constraints.
+
+\begin{importantbox}[Status of the \(58.23\) KiB number]
+The number in \cref{eq:draft-proof-size} is a useful engineering target, not a
+final theorem-level concrete size.  It must be regenerated after:
+(i) serializing both halves \(z_L,z_R\),
+(ii) fixing all four norm slacks,
+(iii) fixing the complete quotient/carry bounds,
+(iv) fixing the real projected bit-block dimension, and
+(v) selecting \(\kappa_A\), the LNP challenge parameters, and every
+LaBRADOR per-level Module-SIS rank with a concrete estimator.
+\end{importantbox}
+
+% =============================================================================
+\section{Implementation checklist}
+% =============================================================================
+
+Before treating the transcript as fully instantiated, the implementation should
+complete the following checks.
+
+\begin{enumerate}
+  \item \textbf{Canonical relation.} Confirm that the implementation proves
+  \cref{eq:R1-native,eq:R2-native,eq:R3-native,eq:R4-native} with the full
+  \(z=(z_L,z_R)\).
+  \item \textbf{Dimensions.} Generate every message length from a single typed
+  relation specification; do not copy the inconsistent summary-table entries.
+  \item \textbf{Quotients.} Derive coefficient bounds for all \(1{,}458\)
+  quotient/carry outputs, encode them, and include their reconstruction and
+  bitness constraints.
+  \item \textbf{Projection serialization.} List every ring coordinate in
+  \(x_{\mathrm{short}}\), compute \(D_{\mathrm{proj}}\) and
+  \(\mu_{\mathrm{proj}}\), and rerun \cref{eq:sproj,eq:no-wrap-summary}.
+  \item \textbf{JL distribution.} Use centered \(\Bin_1\) entries, or reprove
+  the constants for another distribution.
+  \item \textbf{LNP challenge.} Fix
+  \((\kappa_{\mathrm{ch}},k_{\mathrm{ch}},\eta_{\mathrm{ch}})\), measure its
+  acceptance probability, prove challenge-difference invertibility, and update
+  Gaussian and MSIS bounds.
+  \item \textbf{Commitment security.} Select \(\kappa_A\), opening widths, and
+  all compact-commitment ranks using Module-LWE/Module-SIS estimators.
+  \item \textbf{Boundary completeness.} Ensure the LaBRADOR circuit checks
+  projection, constant coefficients, challenge recomputation, parsing,
+  \(f_1,f_2,f_3\), response norm, and all three compact openings.
+  \item \textbf{Post-aggregation factorization.} Build the optimized quadratic
+  circuit only after \(\boldsymbol\mu\) is known; compare it symbolically and
+  with randomized tests to the unfactored \(Q_{\boldsymbol\mu}\).
+  \item \textbf{Recursion.} Generate \((n_i,r_i,b_i,b_{1,i},b_{2,i},t_{1,i},
+  t_{2,i},\kappa_i,\kappa_{1,i},\kappa_{2,i})\) from code, then recompute every
+  proof-size row rather than hard-coding the table.
+  \item \textbf{Fiat--Shamir.} Domain-separate every challenge and bind the CRS,
+  complete statement, preceding messages, dimensions, and protocol version.
+  \item \textbf{Test vectors.} Publish at least one accepted transcript and
+  negative tests that alter each committed flow, projection entry, constant
+  coefficient, response, and dimension field.
+\end{enumerate}
+
+% =============================================================================
+\section{Compact protocol summary}
+% =============================================================================
+
+The complete proof pipeline is
+\[
+ \boxed{
+ \begin{array}{c}
+ \text{native NIBS relation over }R_{q_{\mathrm{sig}}}
+ \\ \Downarrow\ \text{bounded quotient/carry lift}
+ \\ \text{exact relation over }R_{q_\pi}
+ \\ \Downarrow\ \LNPcom\ \text{with three compressed transcript flows}
+ \\ \calR_{\mathrm{bdry}}
+ \\ \Downarrow\ \text{binary-R1CS / dot-product reduction}
+ \\ \LaB^{\circ t}
+ \\ \Downarrow\ \text{Fiat--Shamir}
+ \\ \FS[\LNPLab]
+ \end{array}}
+\]
+LNP supplies zero knowledge and exact extraction for the application witness;
+LaBRADOR supplies recursive succinctness for the large final opening relation.
+The three compact transcript commitments are necessary because compressing only
+the final LNP responses would leave statement-dependent intermediate flows in
+the public proof.
+
+\begin{thebibliography}{9}
+
+\bibitem{LNP22}
+V. Lyubashevsky, N. K. Nguyen, and M. Plancon.
+\newblock \emph{Lattice-Based Zero-Knowledge Proofs and Applications: Shorter,
+Simpler, and More General}.
+\newblock IACR Cryptology ePrint Archive, Report 2022/284, 2022.
+
+\bibitem{BS23}
+W. Beullens and G. Seiler.
+\newblock \emph{LaBRADOR: Compact Proofs for R1CS from Module-SIS}.
+\newblock IACR Cryptology ePrint Archive, Report 2022/1341; CRYPTO 2023.
+
+\bibitem{DPKNRT25}
+R. del Pino, S. Katsumata, G. Niot, M. Reichle, and K. Takemure.
+\newblock \emph{Unmasking TRaccoon: A Lattice-Based Threshold Signature with an
+Efficient Identifiable Abort Protocol}.
+\newblock IACR Cryptology ePrint Archive, Report 2025/849, 2025.
+
+\bibitem{AAB24}
+M. A. Aardal et al.
+\newblock \emph{Aggregating Falcon Signatures with LaBRADOR}.
+\newblock CRYPTO 2024.
+
+\end{thebibliography}
+
+\end{document}
